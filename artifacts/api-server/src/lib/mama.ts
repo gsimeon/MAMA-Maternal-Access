@@ -336,9 +336,9 @@ const benchmarkScenarios: BenchmarkScenario[] = [
     audioAvailable: false,
     dataLabel: "DEMO DATA · SYNTHETIC TRANSCRIPT",
     results: [
-      { model: "SAHARA", transcript: "Abeg, my wife dey bleed since afternoon and she dey feel dizzy. She dey about seven months pregnant.", metrics: { wer: 4.8, intentAccuracy: 100, criticalFactAccuracy: 100, actionAccuracy: 100, vasr: 92, latencyMs: 840, executed: false, availability: "Stored demo result · not a live run" } },
-      { model: "MODEL B · Whisper", transcript: "My wife is bleeding since afternoon and she feels dizzy. She is about seven months pregnant.", metrics: { wer: 18.4, intentAccuracy: 100, criticalFactAccuracy: 75, actionAccuracy: 100, vasr: 68, latencyMs: 1240, executed: false, availability: "Stored demo result · not a live run" } },
-      { model: "MODEL C · Gemini Audio", transcript: "My wife is bleeding and dizzy, seven months pregnant.", metrics: { wer: 27.1, intentAccuracy: 100, criticalFactAccuracy: 75, actionAccuracy: 100, vasr: 64, latencyMs: 1490, executed: false, availability: "Stored demo result · not a live run" } },
+      { model: "SAHARA", transcript: "Abeg, my wife dey bleed since afternoon and she dey feel dizzy. She dey about seven months pregnant.", metrics: { wer: 0.048, intentAccuracy: 1, criticalFactAccuracy: 1, actionAccuracy: 1, vasr: 0.92, latencyMs: 840, executed: false, availability: "Stored demo result · not a live run" } },
+      { model: "MODEL B · Whisper", transcript: "My wife is bleeding since afternoon and she feels dizzy. She is about seven months pregnant.", metrics: { wer: 0.184, intentAccuracy: 1, criticalFactAccuracy: 0.75, actionAccuracy: 1, vasr: 0.68, latencyMs: 1240, executed: false, availability: "Stored demo result · not a live run" } },
+      { model: "MODEL C · Gemini Audio", transcript: "My wife is bleeding and dizzy, seven months pregnant.", metrics: { wer: 0.271, intentAccuracy: 1, criticalFactAccuracy: 0.75, actionAccuracy: 1, vasr: 0.64, latencyMs: 1490, executed: false, availability: "Stored demo result · not a live run" } },
     ],
   },
   {
@@ -358,9 +358,9 @@ const benchmarkScenarios: BenchmarkScenario[] = [
     audioAvailable: false,
     dataLabel: "DEMO DATA · SYNTHETIC TRANSCRIPT",
     results: [
-      { model: "SAHARA", transcript: "Mo wa okay, but I want to know when my next antenatal visit should be.", metrics: { wer: 3.2, intentAccuracy: 100, criticalFactAccuracy: 100, actionAccuracy: 100, vasr: 96, latencyMs: 760, executed: false, availability: "Stored demo result · not a live run" } },
-      { model: "MODEL B · Whisper", transcript: "I'm okay, but I want to know when my next antenatal visit should be.", metrics: { wer: 12.2, intentAccuracy: 100, criticalFactAccuracy: 100, actionAccuracy: 100, vasr: 91, latencyMs: 1120, executed: false, availability: "Stored demo result · not a live run" } },
-      { model: "MODEL C · Gemini Audio", transcript: "I want to know my next antenatal appointment.", metrics: { wer: 18.2, intentAccuracy: 100, criticalFactAccuracy: 100, actionAccuracy: 100, vasr: 88, latencyMs: 1360, executed: false, availability: "Stored demo result · not a live run" } },
+      { model: "SAHARA", transcript: "Mo wa okay, but I want to know when my next antenatal visit should be.", metrics: { wer: 0.032, intentAccuracy: 1, criticalFactAccuracy: 1, actionAccuracy: 1, vasr: 0.96, latencyMs: 760, executed: false, availability: "Stored demo result · not a live run" } },
+      { model: "MODEL B · Whisper", transcript: "I'm okay, but I want to know when my next antenatal visit should be.", metrics: { wer: 0.122, intentAccuracy: 1, criticalFactAccuracy: 1, actionAccuracy: 1, vasr: 0.91, latencyMs: 1120, executed: false, availability: "Stored demo result · not a live run" } },
+      { model: "MODEL C · Gemini Audio", transcript: "I want to know my next antenatal appointment.", metrics: { wer: 0.182, intentAccuracy: 1, criticalFactAccuracy: 1, actionAccuracy: 1, vasr: 0.88, latencyMs: 1360, executed: false, availability: "Stored demo result · not a live run" } },
     ],
   },
 ];
@@ -400,6 +400,6 @@ export function analytics(): AnalyticsSummary {
     ],
     codeSwitchedConversations: 14,
     averageLatencyMs: 940,
-    taskSuccess: 86,
+    taskSuccess: 0.86,
   };
 }
