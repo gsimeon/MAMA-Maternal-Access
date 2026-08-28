@@ -5,7 +5,9 @@
  * MAMA maternal access, monitoring and action API
  * OpenAPI spec version: 0.1.0
  */
+import type { ErrorResponse } from './errorResponse';
 
-export interface HealthStatus {
-  status: string;
-}
+/**
+ * Request could not be processed
+ */
+export type BadRequestResponse = ErrorResponse;

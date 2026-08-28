@@ -6,6 +6,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface HealthStatus {
+export interface Escalation {
+  id: string;
+  conversationId: string;
   status: string;
+  message: string;
+  createdAt: string;
+  dataLabel: string;
 }

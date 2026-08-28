@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "MAMA — Maternal Access"
+description = "A voice-first maternal health intake and referral experience for African code-switched speech, connecting people to safer next steps and health-worker handoff."
+version = "1.0.0"
+id = "artifacts/mama-maternal-access"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19230
+
+[services.development]
+run = "pnpm --filter @workspace/mama-maternal-access run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/mama-maternal-access", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/mama-maternal-access/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19230"
+BASE_PATH = "/"

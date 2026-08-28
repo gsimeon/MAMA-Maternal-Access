@@ -3,13 +3,21 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: MAMA maternal access, monitoring and action API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: conversations
+    description: Voice-first maternal intake conversations
+  - name: referrals
+    description: Consent-aware health-worker referrals
+  - name: benchmarks
+    description: Speech model benchmark lab
+  - name: analytics
+    description: Non-sensitive product analytics
 paths:
   /healthz:
     get:
@@ -24,7 +32,290 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /conversations:
+    post:
+      operationId: createConversation
+      tags: [conversations]
+      summary: Start a conversation
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConversationInput"
+      responses:
+        "201":
+          description: Conversation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+  /conversations/{conversationId}/message:
+    post:
+      operationId: addConversationMessage
+      tags: [conversations]
+      summary: Add a patient message and receive a structured response
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MessageInput"
+      responses:
+        "200":
+          description: Conversation state after processing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationTurn"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /conversations/{conversationId}/analyze:
+    post:
+      operationId: analyzeConversation
+      tags: [conversations]
+      summary: Run structured reasoning and deterministic safety checks
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      responses:
+        "200":
+          description: Structured analysis
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationAnalysis"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /conversations/{conversationId}/action:
+    post:
+      operationId: executeConversationAction
+      tags: [conversations]
+      summary: Execute a safe, consent-aware conversation action
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActionInput"
+      responses:
+        "200":
+          description: Action result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /referrals:
+    get:
+      operationId: listReferrals
+      tags: [referrals]
+      summary: List referrals for the demo health-worker queue
+      parameters:
+        - in: query
+          name: status
+          schema:
+            $ref: "#/components/schemas/ReferralStatus"
+        - in: query
+          name: priority
+          schema:
+            $ref: "#/components/schemas/RiskLevel"
+      responses:
+        "200":
+          description: Referrals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Referral"
+    post:
+      operationId: createReferral
+      tags: [referrals]
+      summary: Create a referral from a consented conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReferralInput"
+      responses:
+        "201":
+          description: Referral created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Referral"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /referrals/{referralId}:
+    get:
+      operationId: getReferral
+      tags: [referrals]
+      summary: Get a referral
+      parameters:
+        - $ref: "#/components/parameters/ReferralId"
+      responses:
+        "200":
+          description: Referral
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Referral"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /referrals/{referralId}/consent:
+    post:
+      operationId: recordReferralConsent
+      tags: [referrals]
+      summary: Record the user's referral consent decision
+      parameters:
+        - $ref: "#/components/parameters/ReferralId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConsentInput"
+      responses:
+        "200":
+          description: Referral with updated consent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Referral"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /escalations:
+    post:
+      operationId: createEscalation
+      tags: [referrals]
+      summary: Request human help
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EscalationInput"
+      responses:
+        "201":
+          description: Escalation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Escalation"
+  /benchmarks:
+    get:
+      operationId: listBenchmarks
+      tags: [benchmarks]
+      summary: List benchmark scenarios and results
+      parameters:
+        - in: query
+          name: languagePair
+          schema:
+            type: string
+        - in: query
+          name: noiseCondition
+          schema:
+            type: string
+        - in: query
+          name: model
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Benchmark scenarios
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BenchmarkScenario"
+  /benchmarks/{benchmarkId}:
+    get:
+      operationId: getBenchmark
+      tags: [benchmarks]
+      summary: Get a benchmark scenario
+      parameters:
+        - $ref: "#/components/parameters/BenchmarkId"
+      responses:
+        "200":
+          description: Benchmark scenario
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BenchmarkScenario"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /benchmarks/run:
+    post:
+      operationId: runBenchmark
+      tags: [benchmarks]
+      summary: Run available speech provider adapters on one scenario
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BenchmarkRunInput"
+      responses:
+        "200":
+          description: Benchmark run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BenchmarkRun"
+  /analytics/summary:
+    get:
+      operationId: getAnalyticsSummary
+      tags: [analytics]
+      summary: Get non-sensitive product analytics
+      responses:
+        "200":
+          description: Analytics summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsSummary"
 components:
+  parameters:
+    ConversationId:
+      in: path
+      name: conversationId
+      required: true
+      schema:
+        type: string
+    ReferralId:
+      in: path
+      name: referralId
+      required: true
+      schema:
+        type: string
+    BenchmarkId:
+      in: path
+      name: benchmarkId
+      required: true
+      schema:
+        type: string
+  responses:
+    BadRequest:
+      description: Request could not be processed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
   schemas:
     HealthStatus:
       type: object
@@ -33,4 +324,433 @@ components:
           type: string
       required:
         - status
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+    RiskLevel:
+      type: string
+      enum: [routine, needs_attention, urgent]
+    AgentState:
+      type: string
+      enum:
+        [LISTEN, UNDERSTAND, CLARIFY, SAFETY_CHECK, ACT, CONFIRM, HANDOFF, CLOSE]
+    VoiceState:
+      type: string
+      enum:
+        [IDLE, LISTENING, PROCESSING, TRANSCRIBING, THINKING, RESPONDING, WAITING_FOR_USER, ESCALATING, COMPLETED, ERROR]
+    ConsentStatus:
+      type: string
+      enum: [pending, granted, declined]
+    ReferralStatus:
+      type: string
+      enum: [new, acknowledged, closed]
+    ConversationInput:
+      type: object
+      properties:
+        demoMode:
+          type: boolean
+          default: true
+        languagePair:
+          type: string
+      additionalProperties: false
+    MessageInput:
+      type: object
+      properties:
+        text:
+          type: string
+          minLength: 1
+        source:
+          type: string
+          enum: [voice, text]
+        audioDurationMs:
+          type: ["number", "null"]
+      required: [text, source]
+      additionalProperties: false
+    Conversation:
+      type: object
+      properties:
+        id:
+          type: string
+        createdAt:
+          type: string
+        state:
+          $ref: "#/components/schemas/AgentState"
+        voiceState:
+          $ref: "#/components/schemas/VoiceState"
+        demoMode:
+          type: boolean
+        languageMix:
+          type: array
+          items:
+            type: string
+        transcript:
+          type: array
+          items:
+            $ref: "#/components/schemas/TranscriptMessage"
+        structuredState:
+          $ref: "#/components/schemas/StructuredState"
+      required: [id, createdAt, state, voiceState, demoMode, languageMix, transcript, structuredState]
+    TranscriptMessage:
+      type: object
+      properties:
+        id:
+          type: string
+        speaker:
+          type: string
+          enum: [user, mama]
+        text:
+          type: string
+        createdAt:
+          type: string
+        source:
+          type: string
+          enum: [voice, text, system]
+      required: [id, speaker, text, createdAt, source]
+    StructuredState:
+      type: object
+      properties:
+        intent:
+          type: ["string", "null"]
+        pregnancyStatus:
+          type: ["string", "null"]
+        gestationalAge:
+          type: ["string", "null"]
+        symptoms:
+          type: array
+          items:
+            type: string
+        duration:
+          type: ["string", "null"]
+        severity:
+          type: ["string", "null"]
+        redFlags:
+          type: array
+          items:
+            type: string
+        relevantContext:
+          type: array
+          items:
+            type: string
+        missingCriticalInformation:
+          type: array
+          items:
+            type: string
+        riskLevel:
+          allOf:
+            - $ref: "#/components/schemas/RiskLevel"
+          nullable: true
+        recommendedAction:
+          type: ["string", "null"]
+        consentStatus:
+          allOf:
+            - $ref: "#/components/schemas/ConsentStatus"
+          nullable: true
+        referralStatus:
+          allOf:
+            - $ref: "#/components/schemas/ReferralStatus"
+          nullable: true
+      required:
+        [intent, pregnancyStatus, gestationalAge, symptoms, duration, severity, redFlags, relevantContext, missingCriticalInformation, riskLevel, recommendedAction, consentStatus, referralStatus]
+    ConversationTurn:
+      type: object
+      properties:
+        conversation:
+          $ref: "#/components/schemas/Conversation"
+        response:
+          type: string
+        detectedLanguage:
+          type: string
+        nextQuestion:
+          type: ["string", "null"]
+        safety:
+          $ref: "#/components/schemas/SafetyResult"
+      required: [conversation, response, detectedLanguage, nextQuestion, safety]
+    ConversationAnalysis:
+      type: object
+      properties:
+        conversation:
+          $ref: "#/components/schemas/Conversation"
+        safety:
+          $ref: "#/components/schemas/SafetyResult"
+        suggestedQuestion:
+          type: ["string", "null"]
+        referralDraft:
+          $ref: "#/components/schemas/ReferralDraft"
+      required: [conversation, safety, suggestedQuestion, referralDraft]
+    SafetyResult:
+      type: object
+      properties:
+        riskLevel:
+          $ref: "#/components/schemas/RiskLevel"
+        routingLabel:
+          type: string
+        explanation:
+          type: string
+        immediateGuidance:
+          type: string
+        requiresHuman:
+          type: boolean
+      required: [riskLevel, routingLabel, explanation, immediateGuidance, requiresHuman]
+    ReferralDraft:
+      type: object
+      properties:
+        priority:
+          $ref: "#/components/schemas/RiskLevel"
+        patientContext:
+          type: string
+        reportedConcerns:
+          type: array
+          items:
+            type: string
+        duration:
+          type: string
+        language:
+          type: string
+        conversationSummary:
+          type: string
+        criticalInformation:
+          type: array
+          items:
+            type: string
+        missingInformation:
+          type: array
+          items:
+            type: string
+      required: [priority, patientContext, reportedConcerns, duration, language, conversationSummary, criticalInformation, missingInformation]
+    ActionInput:
+      type: object
+      properties:
+        action:
+          type: string
+          enum:
+            [GENERAL_GUIDANCE, ASK_CLARIFICATION, CREATE_INTAKE, CREATE_REFERRAL, PREPARE_HANDOFF, REQUEST_HUMAN, ESCALATE, END_CONVERSATION]
+        consent:
+          type: ["boolean", "null"]
+      required: [action]
+      additionalProperties: false
+    ActionResult:
+      type: object
+      properties:
+        action:
+          type: string
+        message:
+          type: string
+        conversation:
+          $ref: "#/components/schemas/Conversation"
+        referral:
+          allOf:
+            - $ref: "#/components/schemas/Referral"
+          nullable: true
+      required: [action, message, conversation, referral]
+    ReferralInput:
+      type: object
+      properties:
+        conversationId:
+          type: string
+        consent:
+          type: boolean
+        status:
+          $ref: "#/components/schemas/ReferralStatus"
+      required: [conversationId, consent]
+      additionalProperties: false
+    ConsentInput:
+      type: object
+      properties:
+        granted:
+          type: boolean
+      required: [granted]
+      additionalProperties: false
+    Referral:
+      type: object
+      properties:
+        id:
+          type: string
+        caseCode:
+          type: string
+        conversationId:
+          type: string
+        priority:
+          $ref: "#/components/schemas/RiskLevel"
+        status:
+          $ref: "#/components/schemas/ReferralStatus"
+        patientContext:
+          type: string
+        reportedConcerns:
+          type: array
+          items:
+            type: string
+        duration:
+          type: string
+        language:
+          type: string
+        conversationSummary:
+          type: string
+        criticalInformation:
+          type: array
+          items:
+            type: string
+        missingInformation:
+          type: array
+          items:
+            type: string
+        consentStatus:
+          $ref: "#/components/schemas/ConsentStatus"
+        createdAt:
+          type: string
+        dataLabel:
+          type: string
+        transcript:
+          type: array
+          items:
+            $ref: "#/components/schemas/TranscriptMessage"
+      required:
+        [id, caseCode, conversationId, priority, status, patientContext, reportedConcerns, duration, language, conversationSummary, criticalInformation, missingInformation, consentStatus, createdAt, dataLabel, transcript]
+    EscalationInput:
+      type: object
+      properties:
+        conversationId:
+          type: string
+        reason:
+          type: string
+      required: [conversationId, reason]
+      additionalProperties: false
+    Escalation:
+      type: object
+      properties:
+        id:
+          type: string
+        conversationId:
+          type: string
+        status:
+          type: string
+        message:
+          type: string
+        createdAt:
+          type: string
+        dataLabel:
+          type: string
+      required: [id, conversationId, status, message, createdAt, dataLabel]
+    BenchmarkMetric:
+      type: object
+      properties:
+        wer:
+          type: number
+        intentAccuracy:
+          type: number
+        criticalFactAccuracy:
+          type: number
+        actionAccuracy:
+          type: number
+        vasr:
+          type: number
+        latencyMs:
+          type: number
+        executed:
+          type: boolean
+        availability:
+          type: string
+      required: [wer, intentAccuracy, criticalFactAccuracy, actionAccuracy, vasr, latencyMs, executed, availability]
+    BenchmarkModelResult:
+      type: object
+      properties:
+        model:
+          type: string
+        transcript:
+          type: string
+        metrics:
+          $ref: "#/components/schemas/BenchmarkMetric"
+      required: [model, transcript, metrics]
+    BenchmarkScenario:
+      type: object
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        languagePair:
+          type: string
+        accentRegion:
+          type: string
+        speakerGender:
+          type: string
+        speakerAgeGroup:
+          type: string
+        domain:
+          type: string
+        deviceType:
+          type: string
+        noiseCondition:
+          type: string
+        referenceTranscript:
+          type: string
+        intent:
+          type: string
+        criticalFacts:
+          type: array
+          items:
+            type: string
+        expectedAction:
+          type: string
+        audioAvailable:
+          type: boolean
+        dataLabel:
+          type: string
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/BenchmarkModelResult"
+      required:
+        [id, label, languagePair, accentRegion, speakerGender, speakerAgeGroup, domain, deviceType, noiseCondition, referenceTranscript, intent, criticalFacts, expectedAction, audioAvailable, dataLabel, results]
+    BenchmarkRunInput:
+      type: object
+      properties:
+        benchmarkId:
+          type: string
+      required: [benchmarkId]
+      additionalProperties: false
+    BenchmarkRun:
+      type: object
+      properties:
+        benchmarkId:
+          type: string
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/BenchmarkModelResult"
+        evaluatedAt:
+          type: string
+        methodology:
+          type: string
+      required: [benchmarkId, results, evaluatedAt, methodology]
+    AnalyticsSummary:
+      type: object
+      properties:
+        totalConversations:
+          type: number
+        completedConversations:
+          type: number
+        referrals:
+          type: number
+        humanEscalations:
+          type: number
+        languagePairs:
+          type: array
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+              count:
+                type: number
+            required: [label, count]
+        codeSwitchedConversations:
+          type: number
+        averageLatencyMs:
+          type: number
+        taskSuccess:
+          type: number
+      required: [totalConversations, completedConversations, referrals, humanEscalations, languagePairs, codeSwitchedConversations, averageLatencyMs, taskSuccess]
 
