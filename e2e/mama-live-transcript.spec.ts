@@ -216,6 +216,7 @@ test("routes a mocked live red-flag transcript to urgent safety guidance", async
 test("shows recovery guidance when the mocked transcript message request fails", async ({ page }) => {
   let transcriptionRequests = 0;
   let messageRequests = 0;
+  let escalationRequests = 0;
   const analyticsEvents: Array<{ name: string; data?: Record<string, string | number | boolean> }> = [];
 
   await page.exposeFunction(
@@ -360,6 +361,48 @@ test("shows recovery guidance when the mocked transcript message request fails",
     });
   });
 
+  await page.route("**/api/conversations/conversation-live/action", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        action: "REQUEST_HUMAN",
+        message: "A human-help request is ready for the demo workflow.",
+        conversation: emptyConversation,
+        referral: null,
+      }),
+    });
+  });
+
+  await page.route("**/api/escalations", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+
+    escalationRequests += 1;
+    if (escalationRequests === 2) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Human support is temporarily unavailable." }),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "escalation-live-1",
+        conversationId: emptyConversation.id,
+        status: "queued",
+        message: "Human support request confirmed for the demo workflow.",
+        createdAt: "2026-08-31T10:00:03.000Z",
+        dataLabel: "SIMULATED ESCALATION · DEMO DATA",
+      }),
+    });
+  });
+
   await page.goto("/");
   await page.getByTestId("button-start-intake").click();
   await expect(page).toHaveURL(/\/conversation\?id=conversation-live$/);
@@ -419,6 +462,58 @@ test("shows recovery guidance when the mocked transcript message request fails",
       data: { recovery_action: "retry", route: "/conversation" },
     },
   ]);
+
+  await page.evaluate((recovery) => {
+    localStorage.setItem("mama-conversation-recovery:conversation-live", JSON.stringify(recovery));
+  }, {
+    conversationId: emptyConversation.id,
+    text: redFlagTranscript,
+    notice: "Your message was transcribed, but MAMA could not deliver the safety guidance.",
+    urgency: "urgent",
+  });
+  await page.reload();
+
+  await expect(page.getByTestId("button-request-human")).toBeVisible();
+  await page.getByTestId("button-request-human").click();
+  await expect(page.getByTestId("status-conversation-notice")).toContainText(
+    "Human support request confirmed for the demo workflow.",
+  );
+  expect(escalationRequests).toBe(1);
+  await expect.poll(() => analyticsEvents).toEqual([
+    {
+      name: "urgent_handoff_failed",
+      data: { input_source: "voice", route: "/conversation" },
+    },
+    {
+      name: "urgent_handoff_recovered",
+      data: { recovery_action: "retry", route: "/conversation" },
+    },
+    {
+      name: "urgent_handoff_recovered",
+      data: { recovery_action: "human_support", route: "/conversation" },
+    },
+  ]);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("mama-conversation-recovery:conversation-live"))).toBeNull();
+
+  await page.evaluate((recovery) => {
+    localStorage.setItem("mama-conversation-recovery:conversation-live", JSON.stringify(recovery));
+  }, {
+    conversationId: emptyConversation.id,
+    text: redFlagTranscript,
+    notice: "Your message was transcribed, but MAMA could not deliver the safety guidance.",
+    urgency: "urgent",
+  });
+  await page.reload();
+
+  await expect(page.getByTestId("button-request-human")).toBeVisible();
+  await page.getByTestId("button-request-human").click();
+  await expect(page.getByTestId("status-conversation-notice")).toContainText(
+    "Human support could not be reached right now. Please try again.",
+  );
+  expect(escalationRequests).toBe(2);
+  await expect.poll(() => analyticsEvents).toHaveLength(3);
+  await expect(page.getByTestId("button-request-human")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("mama-conversation-recovery:conversation-live"))).not.toBeNull();
   expect(JSON.stringify(analyticsEvents)).not.toContain(redFlagTranscript);
   expect(JSON.stringify(analyticsEvents)).not.toContain(emptyConversation.id);
 });
