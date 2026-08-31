@@ -251,7 +251,15 @@ function ConversationPage() {
     setProcessing(true); setNotice('');
     addMessage.mutate({ conversationId: currentId, data: { text: value.trim(), source: source === 'voice' ? MessageInputSource.voice : MessageInputSource.text } }, {
       onSuccess: (turn) => { saveConversation(turn.conversation); setText(''); setProcessing(false); setNotice(successNotice); },
-      onError: () => { setProcessing(false); setNotice('MAMA could not hear that. Your words are still safe here — try once more.'); },
+      onError: () => {
+        setProcessing(false);
+        if (source === 'voice') {
+          setText(value.trim());
+          setNotice('Your message was transcribed, but MAMA could not deliver the safety guidance. Review it below and send again, or choose “I want a human now.”');
+          return;
+        }
+        setNotice('MAMA could not hear that. Your words are still safe here — try once more.');
+      },
     });
   };
   const browserRecognition = () => {

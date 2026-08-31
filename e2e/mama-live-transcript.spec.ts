@@ -211,3 +211,128 @@ test("routes a mocked live red-flag transcript to urgent safety guidance", async
   expect(messageRequests).toBe(1);
   expect(messagePayload).toEqual({ text: redFlagTranscript, source: "voice" });
 });
+
+test("shows recovery guidance when the mocked transcript message request fails", async ({ page }) => {
+  let transcriptionRequests = 0;
+  let messageRequests = 0;
+
+  await page.addInitScript(() => {
+    class TestMediaRecorder {
+      static isTypeSupported() {
+        return true;
+      }
+
+      state = "inactive";
+      mimeType = "audio/webm";
+      ondataavailable: ((event: { data: Blob }) => void) | null = null;
+      onstop: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+
+      start() {
+        this.state = "recording";
+        this.ondataavailable?.({ data: new Blob(["offline failure test audio"], { type: this.mimeType }) });
+      }
+
+      stop() {
+        this.state = "inactive";
+        this.onstop?.();
+      }
+    }
+
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: async () => ({
+          getTracks: () => [{ stop: () => undefined }],
+        }),
+      },
+    });
+    Object.defineProperty(window, "MediaRecorder", {
+      configurable: true,
+      value: TestMediaRecorder,
+    });
+  });
+
+  await page.route("**/api/auth/user", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        user: {
+          id: "offline-failure-test-user",
+          email: "offline-failure-test@example.com",
+          firstName: "Offline",
+          lastName: "Failure",
+          profileImageUrl: null,
+        },
+      }),
+    });
+  });
+
+  await page.route("**/api/healthz", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ status: "operational" }),
+    });
+  });
+
+  await page.route("**/api/conversations", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify(emptyConversation),
+    });
+  });
+
+  await page.route("**/api/conversations/conversation-live/transcribe", async (route) => {
+    transcriptionRequests += 1;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        transcript: redFlagTranscript,
+        provider: "Intron",
+        model: "Sahara",
+        languagePair: "English + Nigerian Pidgin",
+        providerLanguage: "pcm",
+        latencyMs: 42,
+        audioDurationMs: 1_000,
+        live: true,
+        provenance: "LIVE INTRON SAHARA TRANSCRIPTION",
+      }),
+    });
+  });
+
+  await page.route("**/api/conversations/conversation-live/message", async (route) => {
+    messageRequests += 1;
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Safety guidance is temporarily unavailable." }),
+    });
+  });
+
+  await page.goto("/");
+  await page.getByTestId("button-start-intake").click();
+  await expect(page).toHaveURL(/\/conversation\?id=conversation-live$/);
+  await expect(page.getByTestId("button-voice")).toBeVisible();
+
+  await page.getByTestId("button-voice").click();
+  await expect(page.getByTestId("button-voice")).toHaveAttribute("aria-label", "Stop listening");
+  await page.getByTestId("button-voice").click();
+
+  await expect(page.getByTestId("status-conversation-notice")).toContainText(
+    "MAMA could not deliver the safety guidance",
+  );
+  await expect(page.getByTestId("status-conversation-notice")).toContainText(
+    "send again",
+  );
+  await expect(page.getByTestId("input-message")).toHaveValue(redFlagTranscript);
+  await expect(page.getByTestId("message-transcript-conversation-live-message-1")).toHaveCount(0);
+  await expect(page.getByTestId("message-transcript-conversation-live-mama-2")).toHaveCount(0);
+  await expect(page.getByTestId("button-request-human")).toBeVisible();
+  expect(transcriptionRequests).toBe(1);
+  expect(messageRequests).toBe(1);
+});
