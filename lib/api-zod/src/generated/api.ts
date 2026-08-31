@@ -18,6 +18,20 @@ export const HealthCheckResponse = zod.object({
 
 
 /**
+ * @summary Get the current signed-in user
+ */
+export const GetCurrentAuthUserResponse = zod.object({
+  "user": zod.object({
+  "id": zod.string(),
+  "email": zod.string().nullable(),
+  "firstName": zod.string().nullable(),
+  "lastName": zod.string().nullable(),
+  "profileImageUrl": zod.string().nullable()
+}).nullable()
+})
+
+
+/**
  * @summary Start a conversation
  */
 export const createConversationBodyDemoModeDefault = true;

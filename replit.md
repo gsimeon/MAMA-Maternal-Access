@@ -8,7 +8,7 @@ _Replace the heading above with the project's name, and this line with one sente
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
+- `pnpm --filter @workspace/db run push` — apply DB schema changes to development
 - Required env: `DATABASE_URL` — Postgres connection string
 
 ## Stack
@@ -26,7 +26,7 @@ _Populate as you build — short repo map plus pointers to the source-of-truth f
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Drizzle schema files are the database schema source of truth. The post-merge hook applies them to development; Replit Publish computes and applies the development-to-production SQL diff. Do not add startup or deployment-time schema mutation commands.
 
 ## Product
 

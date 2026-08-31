@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Signed-in session operations
   - name: conversations
     description: Voice-first maternal intake conversations
   - name: referrals
@@ -32,6 +34,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /auth/user:
+    get:
+      operationId: getCurrentAuthUser
+      tags: [auth]
+      summary: Get the current signed-in user
+      responses:
+        "200":
+          description: Current authentication state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentAuthUser"
   /conversations:
     post:
       operationId: createConversation
@@ -354,6 +368,28 @@ components:
           type: string
       required:
         - status
+    AuthUser:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: ["string", "null"]
+        firstName:
+          type: ["string", "null"]
+        lastName:
+          type: ["string", "null"]
+        profileImageUrl:
+          type: ["string", "null"]
+      required: [id, email, firstName, lastName, profileImageUrl]
+    CurrentAuthUser:
+      type: object
+      properties:
+        user:
+          allOf:
+            - $ref: "#/components/schemas/AuthUser"
+          nullable: true
+      required: [user]
     ErrorResponse:
       type: object
       properties:

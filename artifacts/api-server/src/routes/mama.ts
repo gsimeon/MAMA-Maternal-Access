@@ -53,45 +53,25 @@ import {
   SpeechProviderError,
   transcribeWithIntron,
 } from "../lib/providers/intron";
+import {
+  reserveIntronQuota,
+  IntronQuotaUnavailableError,
+} from "../lib/intron-quota";
+import { configuredOrigins } from "../lib/origins";
 
 const router: IRouter = Router();
-const liveRequests = new Map<string, { count: number; resetAt: number }>();
-let globalLiveWindow = { count: 0, resetAt: Date.now() + 60 * 60_000 };
 
-function configuredOrigins(): Set<string> {
-  const origins = new Set(
-    (process.env.REPLIT_DOMAINS ?? "").split(",").map((domain) => domain.trim()).filter(Boolean).map((domain) => `https://${domain}`),
-  );
-  if (process.env.REPLIT_DEV_DOMAIN) origins.add(`https://${process.env.REPLIT_DEV_DOMAIN}`);
-  if (process.env.NODE_ENV !== "production") {
-    origins.add("http://localhost:19230");
-    origins.add("http://127.0.0.1:19230");
+function allowLiveProvider(
+  req: Request,
+  res: Response,
+): req is Request & Express.AuthedRequest {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Sign in to use live transcription." });
+    return false;
   }
-  return origins;
-}
-
-function allowLiveProvider(req: Request, res: Response): boolean {
   const origin = req.get("origin");
   if (!origin || !configuredOrigins().has(origin)) {
     res.status(403).json({ error: "Live transcription is only available from the MAMA app." });
-    return false;
-  }
-  const timestamp = Date.now();
-  if (globalLiveWindow.resetAt <= timestamp) globalLiveWindow = { count: 0, resetAt: timestamp + 60 * 60_000 };
-  globalLiveWindow.count += 1;
-  if (globalLiveWindow.count > 60) {
-    res.setHeader("Retry-After", String(Math.ceil((globalLiveWindow.resetAt - timestamp) / 1000)));
-    res.status(429).json({ error: "The live transcription budget is temporarily exhausted." });
-    return false;
-  }
-  const key = req.ip || "unknown";
-  const current = liveRequests.get(key);
-  const window = current && current.resetAt > timestamp ? current : { count: 0, resetAt: timestamp + 60_000 };
-  window.count += 1;
-  liveRequests.set(key, window);
-  if (window.count > 12) {
-    res.setHeader("Retry-After", String(Math.ceil((window.resetAt - timestamp) / 1000)));
-    res.status(429).json({ error: "Too many live transcription requests. Please wait a moment." });
     return false;
   }
   return true;
@@ -116,11 +96,28 @@ router.post("/conversations/:conversationId/message", (req, res): void => {
 });
 
 router.post("/conversations/:conversationId/transcribe", async (req, res): Promise<void> => {
-  if (!allowLiveProvider(req, res)) return;
   const params = TranscribeConversationAudioParams.safeParse(req.params);
   const body = TranscribeConversationAudioBody.safeParse(req.body);
   if (!params.success || !body.success) { bad(res, "Invalid audio transcription request."); return; }
   if (!hasConversation(params.data.conversationId)) { res.status(404).json({ error: "Conversation not found" }); return; }
+  if (!allowLiveProvider(req, res)) return;
+  try {
+    const quota = await reserveIntronQuota(req.user.id);
+    if (!quota.allowed) {
+      res.setHeader("Retry-After", String(quota.retryAfterSeconds));
+      res.status(429).json({
+        error: `Live transcription is temporarily at capacity. Please try again in ${quota.retryAfterSeconds} seconds.`,
+      });
+      return;
+    }
+  } catch (error) {
+    if (error instanceof IntronQuotaUnavailableError) {
+      req.log.error("Shared Intron quota storage unavailable");
+      res.status(503).json({ error: "Live transcription is temporarily unavailable. Please try again shortly." });
+      return;
+    }
+    throw error;
+  }
   try {
     const result = await transcribeWithIntron({
       bytes: decodeAudioBase64(body.data.audioBase64),
@@ -210,7 +207,26 @@ router.get("/benchmarks/:benchmarkId", (req, res): void => {
 router.post("/benchmarks/run", async (req, res): Promise<void> => {
   const parsed = RunBenchmarkBody.safeParse(req.body);
   if (!parsed.success) { bad(res, parsed.error.message); return; }
-  if (parsed.data.audioBase64 && !allowLiveProvider(req, res)) return;
+  if (parsed.data.audioBase64) {
+    if (!allowLiveProvider(req, res)) return;
+    try {
+      const quota = await reserveIntronQuota(req.user.id);
+      if (!quota.allowed) {
+        res.setHeader("Retry-After", String(quota.retryAfterSeconds));
+        res.status(429).json({
+          error: `Live transcription is temporarily at capacity. Please try again in ${quota.retryAfterSeconds} seconds.`,
+        });
+        return;
+      }
+    } catch (error) {
+      if (error instanceof IntronQuotaUnavailableError) {
+        req.log.error("Shared Intron quota storage unavailable");
+        res.status(503).json({ error: "Live transcription is temporarily unavailable. Please try again shortly." });
+        return;
+      }
+      throw error;
+    }
+  }
   try {
     const result = await runBenchmark(parsed.data.benchmarkId, parsed.data);
     if (!result) { res.status(404).json({ error: "Benchmark not found" }); return; }

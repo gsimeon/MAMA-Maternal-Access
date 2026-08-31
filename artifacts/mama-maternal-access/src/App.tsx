@@ -11,6 +11,7 @@ import {
 import type {
   BenchmarkScenario, Conversation, Referral, RiskLevel, TranscriptMessage,
 } from '@workspace/api-client-react';
+import { useAuth } from '@workspace/replit-auth-web';
 import {
   ActionInputAction, ConsentStatus, MessageInputSource, ReferralStatus, TranscriptMessageSpeaker,
   useAddConversationMessage, useAnalyzeConversation, useCreateConversation, useCreateEscalation,
@@ -118,6 +119,7 @@ function HealthBadge() {
 
 function TopBar({ worker = false }: { worker?: boolean }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const { user, isLoading, isAuthenticated, login, logout } = useAuth();
   return (
     <header className={cn('relative z-20 flex items-center justify-between px-5 py-4 md:px-10', worker && 'border-b border-sidebar-border bg-sidebar text-sidebar-foreground')}>
       <Logo compact={false} />
@@ -130,6 +132,7 @@ function TopBar({ worker = false }: { worker?: boolean }) {
           <Link href="/health-worker" data-testid="link-worker-nav" className="mama-focus rounded-lg px-3 py-2 text-sm font-semibold hover:bg-foreground/5">Health worker</Link>
           <Link href="/benchmark" data-testid="link-benchmark-nav" className="mama-focus rounded-lg px-3 py-2 text-sm font-semibold hover:bg-foreground/5">Voice lab</Link>
           <Link href="/responsible-ai" data-testid="link-responsible-nav" className="mama-focus rounded-lg px-3 py-2 text-sm font-semibold hover:bg-foreground/5">Safety</Link>
+          {!isLoading && <button onClick={isAuthenticated ? logout : login} data-testid={isAuthenticated ? 'button-logout' : 'button-login'} className="mama-focus rounded-lg px-3 py-2 text-left text-sm font-bold hover:bg-foreground/5">{isAuthenticated ? `Log out${user?.firstName ? `, ${user.firstName}` : ''}` : 'Log in'}</button>}
         </nav>
       </div>
     </header>
@@ -224,6 +227,13 @@ function ConversationPage() {
   const escalate = useCreateEscalation();
   const consent = useRecordReferralConsent();
   const transcribe = useTranscribeConversationAudio();
+  const {
+    user,
+    isAuthenticated,
+    isLoading: authLoading,
+    login,
+    logout,
+  } = useAuth();
   const recognitionRef = useRef<any>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -261,6 +271,14 @@ function ConversationPage() {
       setListening(false);
       return;
     }
+    if (authLoading) {
+      setNotice('Checking secure live transcription access…');
+      return;
+    }
+    if (!isAuthenticated) {
+      setNotice('Log in from the menu to use secure live transcription. You can still type here.');
+      return;
+    }
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') { browserRecognition(); return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -293,9 +311,14 @@ function ConversationPage() {
             },
           }, {
             onSuccess: (result) => send(result.transcript, 'voice', `Live ${result.provider} ${result.model} transcript · ${result.latencyMs}ms`),
-            onError: () => {
+            onError: (error: any) => {
               setProcessing(false);
-              setNotice('Live Intron transcription is unavailable. Switching to browser speech recognition…');
+              const retryAfter = error?.response?.headers?.get?.('retry-after');
+              setNotice(retryAfter
+                ? `Live transcription is at capacity. Please try again in ${retryAfter} seconds.`
+                : error?.status === 401
+                  ? 'Your session has expired. Log in again to use live transcription.'
+                  : 'Live Intron transcription is unavailable. Switching to browser speech recognition…');
               browserRecognition();
             },
           });
@@ -318,7 +341,7 @@ function ConversationPage() {
   if (!conversation) return <div className="min-h-[100dvh] bg-background"><TopBar /><div className="mx-auto flex max-w-xl flex-col items-center px-5 py-24 text-center"><div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-primary/20 text-accent"><Mic size={28} /></div><h1 className="mt-7 font-[var(--app-font-serif)] text-4xl font-extrabold tracking-[-.06em]">A quiet place to start.</h1><p className="mt-4 text-sm leading-6 text-muted-foreground">Tell MAMA what is happening in your own words. You can speak or type, and you can stop at any time.</p><Button className="mt-8" onClick={openConversation} disabled={create.isPending} testId="button-open-conversation">{create.isPending ? 'Opening…' : <><Plus size={17} /> Begin intake</>}</Button></div></div>;
   return (
     <div className="mama-noise min-h-[100dvh] bg-background text-foreground">
-      <header className="flex items-center justify-between border-b border-border bg-card px-4 py-3 md:px-8"><div className="flex items-center gap-4"><Link href="/" data-testid="link-conversation-home" className="mama-focus rounded-lg p-2 hover:bg-muted"><ArrowLeft size={18} /></Link><Logo /><span className="hidden border-l border-border pl-4 font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground sm:block">private intake / {conversation.id.slice(0, 8)}</span></div><div className="flex items-center gap-3"><Pill tone="teal"><LockKeyhole size={12} /> Demo data</Pill><button data-testid="button-conversation-help" onClick={requestHuman} className="mama-focus rounded-xl p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><CircleHelp size={20} /></button></div></header>
+      <header className="flex items-center justify-between border-b border-border bg-card px-4 py-3 md:px-8"><div className="flex items-center gap-4"><Link href="/" data-testid="link-conversation-home" className="mama-focus rounded-lg p-2 hover:bg-muted"><ArrowLeft size={18} /></Link><Logo /><span className="hidden border-l border-border pl-4 font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground sm:block">private intake / {conversation.id.slice(0, 8)}</span></div><div className="flex items-center gap-3"><Pill tone="teal"><LockKeyhole size={12} /> Demo data</Pill>{!authLoading && <button onClick={isAuthenticated ? logout : login} data-testid={isAuthenticated ? 'button-conversation-logout' : 'button-conversation-login'} className="mama-focus rounded-xl border border-border px-3 py-2 text-xs font-bold hover:bg-muted">{isAuthenticated ? `Log out${user?.firstName ? `, ${user.firstName}` : ''}` : 'Log in for live voice'}</button>}<button data-testid="button-conversation-help" onClick={requestHuman} className="mama-focus rounded-xl p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><CircleHelp size={20} /></button></div></header>
       <main className="mx-auto grid max-w-[1440px] gap-5 px-4 py-5 md:px-8 lg:grid-cols-[minmax(0,1.25fr)_360px]">
         <section className="flex min-h-[calc(100dvh-120px)] flex-col rounded-[24px] border border-border bg-card">
           <div className="flex items-center justify-between border-b border-border px-5 py-4"><div><p className="font-mono text-[10px] uppercase tracking-[.18em] text-accent">Step 01 / listen</p><h1 className="mt-1 font-[var(--app-font-serif)] text-xl font-extrabold tracking-[-.04em]">Tell me what’s happening</h1></div><div className="flex items-center gap-2"><Pill tone={conversation.voiceState === 'LISTENING' ? 'coral' : 'neutral'}><span className={cn('h-1.5 w-1.5 rounded-full', listening ? 'animate-pulse bg-accent' : 'bg-muted-foreground')} />{listening ? 'Listening' : processing ? 'Understanding' : 'Ready'}</Pill><button data-testid="button-more-conversation" className="mama-focus rounded-lg p-2 text-muted-foreground hover:bg-muted"><MoreHorizontal size={18} /></button></div></div>

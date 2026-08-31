@@ -9,6 +9,22 @@ export interface HealthStatus {
   status: string;
 }
 
+export interface AuthUser {
+  id: string;
+  /** @nullable */
+  email: string | null;
+  /** @nullable */
+  firstName: string | null;
+  /** @nullable */
+  lastName: string | null;
+  /** @nullable */
+  profileImageUrl: string | null;
+}
+
+export interface CurrentAuthUser {
+  user: AuthUser | null;
+}
+
 export interface ErrorResponse {
   error: string;
 }

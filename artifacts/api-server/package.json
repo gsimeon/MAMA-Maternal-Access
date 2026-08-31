@@ -8,7 +8,7 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "pnpm --filter @workspace/scripts exec tsx --test ../artifacts/api-server/src/lib/providers/intron.test.ts"
+    "test": "pnpm --filter @workspace/scripts exec tsx --test ../artifacts/api-server/src/lib/providers/intron.test.ts ../artifacts/api-server/src/lib/intron-quota.test.ts ../artifacts/api-server/src/lib/origins.test.ts ../artifacts/api-server/src/routes/mama-security.test.ts"
   },
   "dependencies": {
     "@workspace/api-zod": "workspace:*",
@@ -17,6 +17,7 @@
     "cors": "^2.8.6",
     "drizzle-orm": "catalog:",
     "express": "^5.2.1",
+    "openid-client": "^6.8.1",
     "pino": "^9.14.0",
     "pino-http": "^10.5.0"
   },
