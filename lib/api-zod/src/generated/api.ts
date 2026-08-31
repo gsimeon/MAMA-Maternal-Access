@@ -539,8 +539,6 @@ export const runBenchmarkBodyFileNameMax = 120;
 
 export const runBenchmarkBodyDurationMsMax = 120000;
 
-export const runBenchmarkBodyReferenceTranscriptMax = 5000;
-
 
 
 export const RunBenchmarkBody = zod.object({
@@ -548,8 +546,7 @@ export const RunBenchmarkBody = zod.object({
   "audioBase64": zod.string().min(1).max(runBenchmarkBodyAudioBase64Max).optional(),
   "mimeType": zod.enum(['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/wav', 'audio/x-wav']).optional(),
   "fileName": zod.string().min(1).max(runBenchmarkBodyFileNameMax).optional(),
-  "durationMs": zod.number().min(1).max(runBenchmarkBodyDurationMsMax).optional(),
-  "referenceTranscript": zod.string().min(1).max(runBenchmarkBodyReferenceTranscriptMax).optional()
+  "durationMs": zod.number().min(1).max(runBenchmarkBodyDurationMsMax).optional()
 })
 
 export const RunBenchmarkResponse = zod.object({

@@ -799,10 +799,6 @@ components:
           type: number
           minimum: 1
           maximum: 120000
-        referenceTranscript:
-          type: string
-          minLength: 1
-          maxLength: 5000
       required: [benchmarkId]
       additionalProperties: false
     BenchmarkRun:

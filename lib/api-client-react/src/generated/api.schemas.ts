@@ -366,11 +366,6 @@ export interface BenchmarkRunInput {
      * @maximum 120000
      */
   durationMs?: number;
-  /**
-     * @minLength 1
-     * @maxLength 5000
-     */
-  referenceTranscript?: string;
 }
 
 export interface BenchmarkRun {

@@ -1,1 +1,2 @@
 - [Intron language matrix](intron-language-matrix.md) — MAMA uses 12 fixed African languages as English code-switched pairs; untested pairs stay visibly pending.
+- [Intron sync response](intron-sync-response.md) — Sahara sync uploads may return a usable transcript with FILE_QUEUED; transcript presence can precede final status.

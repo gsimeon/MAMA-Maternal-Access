@@ -215,8 +215,8 @@ export function addMessage(conversationId: string, text: string, source: "voice"
   };
   const nextState = extractState(text, conversation.structuredState);
   const isPidgin = /\b(abeg|dey|shey|make|wey|fit|na|oga)\b/i.test(text);
-  if (isPidgin && !conversation.languageMix.includes("Nigerian Pidgin")) conversation.languageMix.push("Nigerian Pidgin");
-  if (!conversation.languageMix.includes("English")) conversation.languageMix.push("English");
+  if (isPidgin && !conversation.languageMix.some((language) => language.includes("Nigerian Pidgin"))) conversation.languageMix.push("Nigerian Pidgin");
+  if (!conversation.languageMix.some((language) => language.includes("English"))) conversation.languageMix.push("English");
   conversation.transcript.push(message);
   conversation.structuredState = nextState;
   conversation.state = nextState.riskLevel === "urgent" ? "SAFETY_CHECK" : "CLARIFY";
@@ -456,16 +456,18 @@ type LiveBenchmarkInput = {
   mimeType?: string;
   fileName?: string;
   durationMs?: number;
-  referenceTranscript?: string;
 };
 
 export async function runBenchmark(benchmarkId: string, input: LiveBenchmarkInput = {}): Promise<BenchmarkRun | null> {
   const scenario = getBenchmark(benchmarkId);
   if (!scenario) return null;
-  const hasLiveAudio = Boolean(input.audioBase64 || input.mimeType || input.fileName || input.durationMs || input.referenceTranscript);
+  const hasLiveAudio = Boolean(input.audioBase64 || input.mimeType || input.fileName || input.durationMs);
   if (hasLiveAudio) {
-    if (!input.audioBase64 || !input.mimeType || !input.fileName || !input.durationMs || !input.referenceTranscript) {
-      throw new SpeechProviderError("Audio, duration, file name, type, and locked reference transcript are all required for a live benchmark.", 400);
+    if (!input.audioBase64 || !input.mimeType || !input.fileName || !input.durationMs) {
+      throw new SpeechProviderError("Audio, duration, file name, and type are required for a live benchmark.", 400);
+    }
+    if (scenario.dataLabel.includes("PENDING") || scenario.expectedAction.toLowerCase().includes("pending")) {
+      throw new SpeechProviderError("This scenario has no verified server-owned reference and cannot be scored yet.", 400);
     }
     const speechInput: SpeechInput = {
       bytes: decodeAudioBase64(input.audioBase64),
@@ -476,8 +478,12 @@ export async function runBenchmark(benchmarkId: string, input: LiveBenchmarkInpu
     };
     const live = await transcribeWithIntron(speechInput);
     const extracted = extractState(live.transcript, baseState());
-    const expectedUrgent = scenario.expectedAction.toLowerCase().includes("urgent");
-    const actionCorrect = expectedUrgent ? extracted.riskLevel === "urgent" : extracted.riskLevel !== "urgent";
+    const expectedRisk: RiskLevel = scenario.expectedAction.toLowerCase().includes("urgent")
+      ? "urgent"
+      : scenario.expectedAction.toLowerCase().includes("attention")
+        ? "needs_attention"
+        : "routine";
+    const actionCorrect = extracted.riskLevel === expectedRisk;
     const factAccuracy = criticalFactScore(scenario.criticalFacts, live.transcript);
     return {
       benchmarkId,
@@ -485,7 +491,7 @@ export async function runBenchmark(benchmarkId: string, input: LiveBenchmarkInpu
         model: "SAHARA · LIVE",
         transcript: live.transcript,
         metrics: {
-          wer: wordErrorRate(input.referenceTranscript, live.transcript),
+          wer: wordErrorRate(scenario.referenceTranscript, live.transcript),
           intentAccuracy: extracted.intent === scenario.intent ? 1 : 0,
           criticalFactAccuracy: factAccuracy,
           actionAccuracy: actionCorrect ? 1 : 0,
@@ -496,7 +502,7 @@ export async function runBenchmark(benchmarkId: string, input: LiveBenchmarkInpu
         },
       }],
       evaluatedAt: now(),
-      methodology: "Live Intron Sahara transcription measured against the user-locked reference transcript. WER is normalized word-level edit distance; critical facts and deterministic safety action are scored separately.",
+      methodology: "Live Intron Sahara transcription measured against the server-owned locked reference transcript. WER is normalized word-level edit distance; critical facts and deterministic safety action are scored separately.",
     };
   }
   return {
