@@ -1,0 +1,29 @@
+kind = "video"
+videoAspectRatio = "16:9"
+previewPath = "/mama-access-video/"
+title = "MAMA — Maternal Access Video"
+description = "A short animated explainer showing how MAMA turns maternal voice input into language-accessible transcription, safety routing, urgent guidance, and reliable human support."
+version = "1.0.0"
+id = "artifacts/mama-access-video"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/mama-access-video/" ]
+localPort = 23552
+
+[services.development]
+run = "pnpm --filter @workspace/mama-access-video run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/mama-access-video", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/mama-access-video/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23552"
+BASE_PATH = "/mama-access-video/"

@@ -1,0 +1,9 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "BDTBJl_vhc6blTss_qU_T"
+uri = "file://artifacts/mama-access-video/public/audio/bg_music.mp3"
+type = "audio"
+title = "MAMA background music"
+description = "Generated music: Cinematic uplifting orchestral instrumental background music scoring a maternal healthcare technology explainer. Warm felt piano, gentle marimba, soft hand percussion, subtle strings…"
