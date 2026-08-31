@@ -23,6 +23,8 @@ import type {
   ActionInput,
   ActionResult,
   AnalyticsSummary,
+  AudioTranscription,
+  AudioTranscriptionInput,
   BadRequestResponse,
   BenchmarkRun,
   BenchmarkRunInput,
@@ -32,6 +34,7 @@ import type {
   ConversationAnalysis,
   ConversationInput,
   ConversationTurn,
+  ErrorResponse,
   Escalation,
   EscalationInput,
   HealthStatus,
@@ -289,6 +292,78 @@ export const useAddConversationMessage = <TError = ErrorType<NotFoundResponse>,
         TContext
       > => {
       return useMutation(getAddConversationMessageMutationOptions(options));
+    }
+
+export const getTranscribeConversationAudioUrl = (conversationId: string,) => {
+
+
+
+
+  return `/api/conversations/${conversationId}/transcribe`
+}
+
+/**
+ * @summary Transcribe a recorded utterance with Intron Sahara
+ */
+export const transcribeConversationAudio = async (conversationId: string,
+    audioTranscriptionInput: AudioTranscriptionInput, options?: Parameters<typeof customFetch>[1]): Promise<AudioTranscription> => {
+
+  return customFetch<AudioTranscription>(getTranscribeConversationAudioUrl(conversationId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(audioTranscriptionInput)
+  }
+);}
+
+
+
+
+
+export const getTranscribeConversationAudioMutationOptions = <TError = ErrorType<BadRequestResponse | NotFoundResponse | ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof transcribeConversationAudio>>, TError,{conversationId: string;data: BodyType<AudioTranscriptionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof transcribeConversationAudio>>, TError,{conversationId: string;data: BodyType<AudioTranscriptionInput>}, TContext> => {
+
+const mutationKey = ['transcribeConversationAudio'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof transcribeConversationAudio>>, {conversationId: string;data: BodyType<AudioTranscriptionInput>}> = (props) => {
+          const {conversationId,data} = props ?? {};
+
+          return  transcribeConversationAudio(conversationId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TranscribeConversationAudioMutationResult = NonNullable<Awaited<ReturnType<typeof transcribeConversationAudio>>>
+    export type TranscribeConversationAudioMutationBody = BodyType<AudioTranscriptionInput>
+    export type TranscribeConversationAudioMutationError = ErrorType<BadRequestResponse | NotFoundResponse | ErrorResponse>
+
+    /**
+ * @summary Transcribe a recorded utterance with Intron Sahara
+ */
+export const useTranscribeConversationAudio = <TError = ErrorType<BadRequestResponse | NotFoundResponse | ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof transcribeConversationAudio>>, TError,{conversationId: string;data: BodyType<AudioTranscriptionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof transcribeConversationAudio>>,
+        TError,
+        {conversationId: string;data: BodyType<AudioTranscriptionInput>},
+        TContext
+      > => {
+      return useMutation(getTranscribeConversationAudioMutationOptions(options));
     }
 
 export const getAnalyzeConversationUrl = (conversationId: string,) => {

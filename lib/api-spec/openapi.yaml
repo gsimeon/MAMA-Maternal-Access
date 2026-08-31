@@ -72,6 +72,36 @@ paths:
                 $ref: "#/components/schemas/ConversationTurn"
         "404":
           $ref: "#/components/responses/NotFound"
+  /conversations/{conversationId}/transcribe:
+    post:
+      operationId: transcribeConversationAudio
+      tags: [conversations]
+      summary: Transcribe a recorded utterance with Intron Sahara
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AudioTranscriptionInput"
+      responses:
+        "200":
+          description: Live provider transcription
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AudioTranscription"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: Live transcription is not configured or unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /conversations/{conversationId}/analyze:
     post:
       operationId: analyzeConversation
@@ -369,6 +399,51 @@ components:
           type: ["number", "null"]
       required: [text, source]
       additionalProperties: false
+    AudioTranscriptionInput:
+      type: object
+      properties:
+        audioBase64:
+          type: string
+          minLength: 1
+          maxLength: 11200000
+        mimeType:
+          type: string
+          enum: [audio/webm, audio/ogg, audio/mp4, audio/mpeg, audio/wav, audio/x-wav]
+        fileName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        languagePair:
+          type: string
+        durationMs:
+          type: number
+          minimum: 1
+          maximum: 120000
+      required: [audioBase64, mimeType, fileName, languagePair, durationMs]
+      additionalProperties: false
+    AudioTranscription:
+      type: object
+      properties:
+        transcript:
+          type: string
+          minLength: 1
+        provider:
+          type: string
+        model:
+          type: string
+        languagePair:
+          type: string
+        providerLanguage:
+          type: string
+        latencyMs:
+          type: number
+        audioDurationMs:
+          type: number
+        live:
+          type: boolean
+        provenance:
+          type: string
+      required: [transcript, provider, model, languagePair, providerLanguage, latencyMs, audioDurationMs, live, provenance]
     Conversation:
       type: object
       properties:
@@ -709,6 +784,25 @@ components:
       properties:
         benchmarkId:
           type: string
+        audioBase64:
+          type: string
+          minLength: 1
+          maxLength: 11200000
+        mimeType:
+          type: string
+          enum: [audio/webm, audio/ogg, audio/mp4, audio/mpeg, audio/wav, audio/x-wav]
+        fileName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        durationMs:
+          type: number
+          minimum: 1
+          maximum: 120000
+        referenceTranscript:
+          type: string
+          minLength: 1
+          maxLength: 5000
       required: [benchmarkId]
       additionalProperties: false
     BenchmarkRun:

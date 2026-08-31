@@ -29,6 +29,9 @@ import {
   RecordReferralConsentResponse,
   RunBenchmarkBody,
   RunBenchmarkResponse,
+  TranscribeConversationAudioBody,
+  TranscribeConversationAudioParams,
+  TranscribeConversationAudioResponse,
 } from "@workspace/api-zod";
 import {
   action,
@@ -39,11 +42,17 @@ import {
   createEscalation,
   getBenchmark,
   getReferral,
+  hasConversation,
   listBenchmarks,
   listReferrals,
   recordConsent,
   runBenchmark,
 } from "../lib/mama";
+import {
+  decodeAudioBase64,
+  SpeechProviderError,
+  transcribeWithIntron,
+} from "../lib/providers/intron";
 
 const router: IRouter = Router();
 const bad = (res: Parameters<Parameters<IRouter["post"]>[1]>[1], message: string) => {
@@ -63,6 +72,29 @@ router.post("/conversations/:conversationId/message", (req, res): void => {
   const result = addMessage(params.data.conversationId, body.data.text, body.data.source, body.data.audioDurationMs);
   if (!result) { res.status(404).json({ error: "Conversation not found" }); return; }
   res.json(AddConversationMessageResponse.parse(result));
+});
+
+router.post("/conversations/:conversationId/transcribe", async (req, res): Promise<void> => {
+  const params = TranscribeConversationAudioParams.safeParse(req.params);
+  const body = TranscribeConversationAudioBody.safeParse(req.body);
+  if (!params.success || !body.success) { bad(res, "Invalid audio transcription request."); return; }
+  if (!hasConversation(params.data.conversationId)) { res.status(404).json({ error: "Conversation not found" }); return; }
+  try {
+    const result = await transcribeWithIntron({
+      bytes: decodeAudioBase64(body.data.audioBase64),
+      mimeType: body.data.mimeType,
+      fileName: body.data.fileName,
+      languagePair: body.data.languagePair,
+      durationMs: body.data.durationMs,
+    });
+    res.json(TranscribeConversationAudioResponse.parse(result));
+  } catch (error) {
+    const providerError = error instanceof SpeechProviderError
+      ? error
+      : new SpeechProviderError("Live transcription failed.", 503);
+    req.log.warn({ status: providerError.status }, "Intron transcription request failed");
+    res.status(providerError.status).json({ error: providerError.message });
+  }
 });
 
 router.post("/conversations/:conversationId/analyze", (req, res): void => {
@@ -133,12 +165,20 @@ router.get("/benchmarks/:benchmarkId", (req, res): void => {
   res.json(GetBenchmarkResponse.parse(benchmark));
 });
 
-router.post("/benchmarks/run", (req, res): void => {
+router.post("/benchmarks/run", async (req, res): Promise<void> => {
   const parsed = RunBenchmarkBody.safeParse(req.body);
   if (!parsed.success) { bad(res, parsed.error.message); return; }
-  const result = runBenchmark(parsed.data.benchmarkId);
-  if (!result) { res.status(404).json({ error: "Benchmark not found" }); return; }
-  res.json(RunBenchmarkResponse.parse(result));
+  try {
+    const result = await runBenchmark(parsed.data.benchmarkId, parsed.data);
+    if (!result) { res.status(404).json({ error: "Benchmark not found" }); return; }
+    res.json(RunBenchmarkResponse.parse(result));
+  } catch (error) {
+    const providerError = error instanceof SpeechProviderError
+      ? error
+      : new SpeechProviderError("Live benchmark failed.", 503);
+    req.log.warn({ status: providerError.status }, "Intron benchmark request failed");
+    res.status(providerError.status).json({ error: providerError.message });
+  }
 });
 
 router.get("/analytics/summary", (_req, res): void => {

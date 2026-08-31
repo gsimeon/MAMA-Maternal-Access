@@ -91,6 +91,51 @@ export interface MessageInput {
   audioDurationMs?: number | null;
 }
 
+export type AudioTranscriptionInputMimeType = typeof AudioTranscriptionInputMimeType[keyof typeof AudioTranscriptionInputMimeType];
+
+
+export const AudioTranscriptionInputMimeType = {
+  'audio/webm': 'audio/webm',
+  'audio/ogg': 'audio/ogg',
+  'audio/mp4': 'audio/mp4',
+  'audio/mpeg': 'audio/mpeg',
+  'audio/wav': 'audio/wav',
+  'audio/x-wav': 'audio/x-wav',
+} as const;
+
+export interface AudioTranscriptionInput {
+  /**
+     * @minLength 1
+     * @maxLength 11200000
+     */
+  audioBase64: string;
+  mimeType: AudioTranscriptionInputMimeType;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  fileName: string;
+  languagePair: string;
+  /**
+     * @minimum 1
+     * @maximum 120000
+     */
+  durationMs: number;
+}
+
+export interface AudioTranscription {
+  /** @minLength 1 */
+  transcript: string;
+  provider: string;
+  model: string;
+  languagePair: string;
+  providerLanguage: string;
+  latencyMs: number;
+  audioDurationMs: number;
+  live: boolean;
+  provenance: string;
+}
+
 export type TranscriptMessageSpeaker = typeof TranscriptMessageSpeaker[keyof typeof TranscriptMessageSpeaker];
 
 
@@ -291,8 +336,41 @@ export interface BenchmarkScenario {
   results: BenchmarkModelResult[];
 }
 
+export type BenchmarkRunInputMimeType = typeof BenchmarkRunInputMimeType[keyof typeof BenchmarkRunInputMimeType];
+
+
+export const BenchmarkRunInputMimeType = {
+  'audio/webm': 'audio/webm',
+  'audio/ogg': 'audio/ogg',
+  'audio/mp4': 'audio/mp4',
+  'audio/mpeg': 'audio/mpeg',
+  'audio/wav': 'audio/wav',
+  'audio/x-wav': 'audio/x-wav',
+} as const;
+
 export interface BenchmarkRunInput {
   benchmarkId: string;
+  /**
+     * @minLength 1
+     * @maxLength 11200000
+     */
+  audioBase64?: string;
+  mimeType?: BenchmarkRunInputMimeType;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  fileName?: string;
+  /**
+     * @minimum 1
+     * @maximum 120000
+     */
+  durationMs?: number;
+  /**
+     * @minLength 1
+     * @maxLength 5000
+     */
+  referenceTranscript?: string;
 }
 
 export interface BenchmarkRun {

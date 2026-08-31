@@ -5,7 +5,29 @@
  * MAMA maternal access, monitoring and action API
  * OpenAPI spec version: 0.1.0
  */
+import type { BenchmarkRunInputMimeType } from './benchmarkRunInputMimeType';
 
 export interface BenchmarkRunInput {
   benchmarkId: string;
+  /**
+     * @minLength 1
+     * @maxLength 11200000
+     */
+  audioBase64?: string;
+  mimeType?: BenchmarkRunInputMimeType;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  fileName?: string;
+  /**
+     * @minimum 1
+     * @maximum 120000
+     */
+  durationMs?: number;
+  /**
+     * @minLength 1
+     * @maxLength 5000
+     */
+  referenceTranscript?: string;
 }

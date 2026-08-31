@@ -16,6 +16,7 @@ import {
   useAddConversationMessage, useAnalyzeConversation, useCreateConversation, useCreateEscalation,
   useCreateReferral, useExecuteConversationAction, useGetAnalyticsSummary, useGetBenchmark,
   useGetReferral, useHealthCheck, useListBenchmarks, useListReferrals, useRecordReferralConsent, useRunBenchmark,
+  useTranscribeConversationAudio,
   getGetAnalyticsSummaryQueryKey, getGetBenchmarkQueryKey, getGetReferralQueryKey, getHealthCheckQueryKey,
   getListBenchmarksQueryKey, getListReferralsQueryKey,
 } from '@workspace/api-client-react';
@@ -34,6 +35,25 @@ const INTRON_LANGUAGES = [
 const cn = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
 const formatTime = (date?: string) => date ? new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'now';
 const riskLabel = (risk?: string | null) => risk === 'urgent' ? 'Urgent' : risk === 'needs_attention' ? 'Needs attention' : 'Routine';
+const RECORDER_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'] as const;
+const toBase64 = (blob: Blob) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+  reader.onerror = () => reject(reader.error);
+  reader.readAsDataURL(blob);
+});
+const audioDuration = (blob: Blob) => new Promise<number>((resolve, reject) => {
+  const audio = document.createElement('audio');
+  const url = URL.createObjectURL(blob);
+  audio.preload = 'metadata';
+  audio.onloadedmetadata = () => {
+    const duration = Number.isFinite(audio.duration) ? Math.round(audio.duration * 1000) : 0;
+    URL.revokeObjectURL(url);
+    duration > 0 ? resolve(duration) : reject(new Error('Audio duration unavailable'));
+  };
+  audio.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Audio duration unavailable')); };
+  audio.src = url;
+});
 
 function Logo({ compact = false }: { compact?: boolean }) {
   return (
@@ -203,7 +223,12 @@ function ConversationPage() {
   const createReferral = useCreateReferral();
   const escalate = useCreateEscalation();
   const consent = useRecordReferralConsent();
+  const transcribe = useTranscribeConversationAudio();
   const recognitionRef = useRef<any>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const recordingStartedRef = useRef(0);
   const currentId = queryId || conversation?.id;
   const messages = conversation?.transcript || [];
   const structure = conversation?.structuredState;
@@ -211,16 +236,15 @@ function ConversationPage() {
   useEffect(() => { if (queryId && conversation?.id !== queryId) { const stored = localStorage.getItem('mama-conversation'); if (stored) setConversation(JSON.parse(stored)); } }, [queryId, conversation?.id]);
   const saveConversation = (next: Conversation) => { setConversation(next); localStorage.setItem('mama-conversation', JSON.stringify(next)); };
   const openConversation = () => create.mutate({ data: { demoMode: true, languagePair: 'English · Nigerian Pidgin' } }, { onSuccess: (next) => { saveConversation(next); setLocation(`/conversation?id=${next.id}`); } });
-  const send = (value: string, source: 'voice' | 'text' = 'text') => {
+  const send = (value: string, source: 'voice' | 'text' = 'text', successNotice = '') => {
     if (!value.trim() || !currentId) return;
     setProcessing(true); setNotice('');
     addMessage.mutate({ conversationId: currentId, data: { text: value.trim(), source: source === 'voice' ? MessageInputSource.voice : MessageInputSource.text } }, {
-      onSuccess: (turn) => { saveConversation(turn.conversation); setText(''); setProcessing(false); },
+      onSuccess: (turn) => { saveConversation(turn.conversation); setText(''); setProcessing(false); setNotice(successNotice); },
       onError: () => { setProcessing(false); setNotice('MAMA could not hear that. Your words are still safe here — try once more.'); },
     });
   };
-  const toggleVoice = () => {
-    if (listening) { recognitionRef.current?.stop(); setListening(false); return; }
+  const browserRecognition = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) { setNotice('Voice capture is not available in this browser. You can type instead.'); return; }
     const recognition = new SpeechRecognition(); recognition.lang = 'en-NG'; recognition.interimResults = false; recognition.continuous = false;
@@ -229,6 +253,60 @@ function ConversationPage() {
     recognition.onerror = () => { setListening(false); setNotice('We could not capture that. You can try again or type instead.'); };
     recognition.onresult = (event: any) => send(event.results[0][0].transcript, 'voice');
     recognitionRef.current = recognition; recognition.start();
+  };
+  const toggleVoice = async () => {
+    if (listening) {
+      if (recorderRef.current?.state === 'recording') recorderRef.current.stop();
+      else recognitionRef.current?.stop();
+      setListening(false);
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') { browserRecognition(); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = RECORDER_TYPES.find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      chunksRef.current = [];
+      streamRef.current = stream;
+      recorderRef.current = recorder;
+      recordingStartedRef.current = Date.now();
+      recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data); };
+      recorder.onerror = () => { stream.getTracks().forEach((track) => track.stop()); setListening(false); setProcessing(false); setNotice('Recording failed. You can try browser recognition or type instead.'); };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        setListening(false);
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        if (!blob.size || !currentId) { setNotice('No audio was captured. Please try again or type instead.'); return; }
+        const durationMs = Math.min(120000, Math.max(1, Date.now() - recordingStartedRef.current));
+        setProcessing(true);
+        setNotice('Sending this recording securely to Intron Sahara…');
+        try {
+          const audioBase64 = await toBase64(blob);
+          transcribe.mutate({
+            conversationId: currentId,
+            data: {
+              audioBase64,
+              mimeType: (blob.type.split(';')[0] || 'audio/webm') as any,
+              fileName: `mama-${Date.now()}.${blob.type.includes('ogg') ? 'ogg' : blob.type.includes('mp4') ? 'm4a' : 'webm'}`,
+              languagePair: (conversation?.languageMix[0] || 'English + Nigerian Pidgin').replace('·', '+'),
+              durationMs,
+            },
+          }, {
+            onSuccess: (result) => send(result.transcript, 'voice', `Live ${result.provider} ${result.model} transcript · ${result.latencyMs}ms`),
+            onError: () => { setProcessing(false); setNotice('Live Intron transcription is unavailable. You can try browser recognition or type instead.'); },
+          });
+        } catch {
+          setProcessing(false);
+          setNotice('The recording could not be prepared. You can try browser recognition or type instead.');
+        }
+      };
+      recorder.start(250);
+      setNotice('Recording locally. Tap the microphone again when you are done.');
+      setListening(true);
+    } catch {
+      setNotice('Microphone permission was not available. Trying browser speech recognition instead.');
+      browserRecognition();
+    }
   };
   const runAnalysis = () => { if (currentId) analyze.mutate({ conversationId: currentId }, { onSuccess: (result) => { saveConversation(result.conversation); setNotice('Safety check complete. Review the handoff below.'); } }); };
   const requestHuman = () => { if (!currentId) return; action.mutate({ conversationId: currentId, data: { action: ActionInputAction.REQUEST_HUMAN, consent: null } }, { onSuccess: () => { escalate.mutate({ data: { conversationId: currentId, reason: 'Patient requested human support during intake.' } }, { onSuccess: (result) => setNotice(result.message || 'A human support request has been recorded.') }); }, onError: () => setNotice('Human support could not be reached right now. Please try again.') }); };
@@ -304,6 +382,9 @@ function BenchmarkPage() {
   const [languagePair, setLanguagePair] = useState('');
   const [noise, setNoise] = useState('');
   const [selectedId, setSelectedId] = useState('');
+  const [benchmarkAudio, setBenchmarkAudio] = useState<File | null>(null);
+  const [referenceTranscript, setReferenceTranscript] = useState('');
+  const [benchmarkNotice, setBenchmarkNotice] = useState('');
   const benchmarkParams = { languagePair: languagePair || undefined, noiseCondition: noise || undefined };
   const { data: scenarios, isLoading, isError, refetch } = useListBenchmarks(benchmarkParams, { query: { queryKey: getListBenchmarksQueryKey(benchmarkParams) } });
   const list = scenarios || [];
@@ -312,7 +393,27 @@ function BenchmarkPage() {
   const run = useRunBenchmark();
   const analytics = useGetAnalyticsSummary({ query: { queryKey: getGetAnalyticsSummaryQueryKey() } });
   const active = selected || list.find((item) => item.id === selectedId);
-  return <PageFrame eyebrow="MAMA / voice intelligence lab" title="Can the model hear the whole story?" description="Benchmarking language, code-switching, and the details that change a safe next action. Every scenario is labelled and reviewable." action={<Pill tone="yellow"><BrainCircuit size={13} /> 12-language Intron matrix</Pill>}><div className="grid gap-5 xl:grid-cols-[300px_1fr]"><aside className="space-y-4"><section className="rounded-[24px] border border-border bg-card p-5"><div className="flex items-center justify-between"><h2 className="font-[var(--app-font-serif)] text-lg font-extrabold">Scenarios</h2><Pill>{list.length}</Pill></div><div className="mt-4 space-y-2"><label className="block text-[10px] font-bold uppercase tracking-[.13em] text-muted-foreground">Language pair<select value={languagePair} onChange={(event) => setLanguagePair(event.target.value)} data-testid="select-language-filter" className="mt-1.5 w-full rounded-xl border border-input bg-background p-2.5 text-xs font-semibold outline-none focus:border-primary"><option value="">All 12 language pairs</option>{INTRON_LANGUAGES.map((language) => <option key={language}>English + {language}</option>)}</select></label><label className="block text-[10px] font-bold uppercase tracking-[.13em] text-muted-foreground">Noise condition<select value={noise} onChange={(event) => setNoise(event.target.value)} data-testid="select-noise-filter" className="mt-1.5 w-full rounded-xl border border-input bg-background p-2.5 text-xs font-semibold outline-none focus:border-primary"><option value="">Any environment</option><option>Generator / fan</option><option>Quiet</option><option>To be recorded</option></select></label></div></section><div className="space-y-2">{isLoading ? [1, 2, 3].map((i) => <div className="h-20 animate-pulse rounded-2xl bg-muted" key={i} />) : isError ? <EmptyState icon={TriangleAlert} title="Lab unavailable" copy="Try loading the benchmark set again." action={<Button onClick={() => refetch()} testId="button-retry-benchmarks"><RefreshCw size={14} /> Retry</Button>} /> : list.length === 0 ? <EmptyState icon={BookOpen} title="No scenarios" copy="Try clearing a filter." /> : list.map((scenario) => <ScenarioCard key={scenario.id} scenario={scenario} active={selectedId === scenario.id} onClick={() => setSelectedId(scenario.id)} />)}</div></aside><main className="space-y-5">{active ? <><section className="rounded-[26px] border border-border bg-sidebar p-6 text-sidebar-foreground md:p-8"><div className="flex flex-wrap items-start justify-between gap-4"><div><Pill tone="yellow">Scenario / {active.id.slice(0, 6)}</Pill><h2 className="mt-5 max-w-2xl font-[var(--app-font-serif)] text-3xl font-extrabold leading-tight tracking-[-.05em] md:text-5xl">{active.label}</h2></div><Button onClick={() => run.mutate({ data: { benchmarkId: active.id } })} disabled={run.isPending} testId="button-run-benchmark">{run.isPending ? <><RefreshCw size={15} className="animate-spin" /> Running</> : <><Play size={15} /> Replay scenario</>}</Button></div><div className="mt-8 rounded-2xl border border-sidebar-border bg-sidebar-accent p-5"><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.16em] text-primary"><AudioLines size={14} /> Reference utterance</div><p className="mt-4 text-lg leading-8">“{active.referenceTranscript}”</p><div className="mt-5 flex flex-wrap gap-2"><Pill tone="dark"><Languages size={12} /> {active.languagePair}</Pill><Pill tone="dark"><Radio size={12} /> {active.noiseCondition} noise</Pill><Pill tone="dark"><LockKeyhole size={12} /> {active.dataLabel}</Pill></div></div></section><AnalyticsStrip summary={analytics.data} /><ModelTable results={run.data?.results || active.results} /></> : <EmptyState icon={Headphones} title="Choose a scenario" copy="Select a benchmark to inspect model behavior." />}</main></div></PageFrame>;
+  useEffect(() => {
+    if (!active) return;
+    setBenchmarkAudio(null);
+    setBenchmarkNotice('');
+    setReferenceTranscript(active.dataLabel.includes('PENDING') ? '' : active.referenceTranscript);
+  }, [active?.id]);
+  const executeBenchmark = async () => {
+    if (!active) return;
+    setBenchmarkNotice('');
+    if (!benchmarkAudio) { run.mutate({ data: { benchmarkId: active.id } }); return; }
+    if (!referenceTranscript.trim()) { setBenchmarkNotice('Add and verify the locked reference transcript before scoring this audio.'); return; }
+    try {
+      const durationMs = await audioDuration(benchmarkAudio);
+      const audioBase64 = await toBase64(benchmarkAudio);
+      run.mutate({ data: { benchmarkId: active.id, audioBase64, mimeType: (benchmarkAudio.type.split(';')[0] || 'audio/webm') as any, fileName: benchmarkAudio.name, durationMs, referenceTranscript: referenceTranscript.trim() } }, {
+        onSuccess: () => setBenchmarkNotice('Live Intron result measured against the locked reference transcript.'),
+        onError: () => setBenchmarkNotice('Live Intron benchmarking is unavailable. Check the server credential and audio format.'),
+      });
+    } catch { setBenchmarkNotice('This audio file could not be read or exceeds the supported duration.'); }
+  };
+  return <PageFrame eyebrow="MAMA / voice intelligence lab" title="Can the model hear the whole story?" description="Benchmarking language, code-switching, and the details that change a safe next action. Every scenario is labelled and reviewable." action={<Pill tone="yellow"><BrainCircuit size={13} /> 12-language Intron matrix</Pill>}><div className="grid gap-5 xl:grid-cols-[300px_1fr]"><aside className="space-y-4"><section className="rounded-[24px] border border-border bg-card p-5"><div className="flex items-center justify-between"><h2 className="font-[var(--app-font-serif)] text-lg font-extrabold">Scenarios</h2><Pill>{list.length}</Pill></div><div className="mt-4 space-y-2"><label className="block text-[10px] font-bold uppercase tracking-[.13em] text-muted-foreground">Language pair<select value={languagePair} onChange={(event) => setLanguagePair(event.target.value)} data-testid="select-language-filter" className="mt-1.5 w-full rounded-xl border border-input bg-background p-2.5 text-xs font-semibold outline-none focus:border-primary"><option value="">All 12 language pairs</option>{INTRON_LANGUAGES.map((language) => <option key={language}>English + {language}</option>)}</select></label><label className="block text-[10px] font-bold uppercase tracking-[.13em] text-muted-foreground">Noise condition<select value={noise} onChange={(event) => setNoise(event.target.value)} data-testid="select-noise-filter" className="mt-1.5 w-full rounded-xl border border-input bg-background p-2.5 text-xs font-semibold outline-none focus:border-primary"><option value="">Any environment</option><option>Generator / fan</option><option>Quiet</option><option>To be recorded</option></select></label></div></section><div className="space-y-2">{isLoading ? [1, 2, 3].map((i) => <div className="h-20 animate-pulse rounded-2xl bg-muted" key={i} />) : isError ? <EmptyState icon={TriangleAlert} title="Lab unavailable" copy="Try loading the benchmark set again." action={<Button onClick={() => refetch()} testId="button-retry-benchmarks"><RefreshCw size={14} /> Retry</Button>} /> : list.length === 0 ? <EmptyState icon={BookOpen} title="No scenarios" copy="Try clearing a filter." /> : list.map((scenario) => <ScenarioCard key={scenario.id} scenario={scenario} active={selectedId === scenario.id} onClick={() => setSelectedId(scenario.id)} />)}</div></aside><main className="space-y-5">{active ? <><section className="rounded-[26px] border border-border bg-sidebar p-6 text-sidebar-foreground md:p-8"><div className="flex flex-wrap items-start justify-between gap-4"><div><Pill tone="yellow">Scenario / {active.id.slice(0, 6)}</Pill><h2 className="mt-5 max-w-2xl font-[var(--app-font-serif)] text-3xl font-extrabold leading-tight tracking-[-.05em] md:text-5xl">{active.label}</h2></div><Button onClick={executeBenchmark} disabled={run.isPending} testId="button-run-benchmark">{run.isPending ? <><RefreshCw size={15} className="animate-spin" /> Running</> : <><Play size={15} /> {benchmarkAudio ? 'Run live Intron' : 'Replay stored result'}</>}</Button></div><div className="mt-8 rounded-2xl border border-sidebar-border bg-sidebar-accent p-5"><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.16em] text-primary"><AudioLines size={14} /> Evidence fixture</div><label className="mt-4 block text-xs font-bold">Recorded audio<input data-testid="input-benchmark-audio" type="file" accept="audio/webm,audio/ogg,audio/mp4,audio/mpeg,audio/wav" onChange={(event) => setBenchmarkAudio(event.target.files?.[0] || null)} className="mt-2 block w-full rounded-xl border border-sidebar-border bg-sidebar p-3 text-xs" /></label><label className="mt-4 block text-xs font-bold">Locked reference transcript<textarea data-testid="input-reference-transcript" value={referenceTranscript} onChange={(event) => setReferenceTranscript(event.target.value)} rows={3} placeholder="Enter the verified words spoken in this recording." className="mt-2 w-full resize-y rounded-xl border border-sidebar-border bg-sidebar p-3 text-sm leading-6 outline-none focus:border-primary" /></label>{benchmarkNotice && <p className="mt-3 text-xs text-primary">{benchmarkNotice}</p>}<div className="mt-5 flex flex-wrap gap-2"><Pill tone="dark"><Languages size={12} /> {active.languagePair}</Pill><Pill tone="dark"><Radio size={12} /> {active.noiseCondition} noise</Pill><Pill tone="dark"><LockKeyhole size={12} /> {benchmarkAudio ? 'USER AUDIO · LIVE RUN' : active.dataLabel}</Pill></div></div></section><AnalyticsStrip summary={analytics.data} /><ModelTable results={run.data?.results || active.results} /></> : <EmptyState icon={Headphones} title="Choose a scenario" copy="Select a benchmark to inspect model behavior." />}</main></div></PageFrame>;
 }
 
 function ScenarioCard({ scenario, active, onClick }: { scenario: BenchmarkScenario; active: boolean; onClick: () => void }) { return <button onClick={onClick} data-testid={`button-scenario-${scenario.id}`} className={cn('mama-focus w-full rounded-2xl border p-4 text-left transition', active ? 'border-primary bg-primary/15' : 'border-border bg-card hover:border-primary/50')}><div className="flex items-center justify-between gap-2"><span className="font-mono text-[10px] text-muted-foreground">{scenario.languagePair}</span>{scenario.audioAvailable && <AudioLines size={14} className="text-accent" />}</div><h3 className="mt-2 text-sm font-bold leading-5">{scenario.label}</h3><p className="mt-2 text-[11px] text-muted-foreground">{scenario.accentRegion} · {scenario.deviceType}</p></button>; }

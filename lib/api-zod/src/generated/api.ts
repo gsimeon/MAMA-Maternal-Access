@@ -120,6 +120,45 @@ export const AddConversationMessageResponse = zod.object({
 
 
 /**
+ * @summary Transcribe a recorded utterance with Intron Sahara
+ */
+export const TranscribeConversationAudioParams = zod.object({
+  "conversationId": zod.coerce.string()
+})
+
+export const transcribeConversationAudioBodyAudioBase64Max = 11200000;
+
+export const transcribeConversationAudioBodyFileNameMax = 120;
+
+export const transcribeConversationAudioBodyDurationMsMax = 120000;
+
+
+
+export const TranscribeConversationAudioBody = zod.object({
+  "audioBase64": zod.string().min(1).max(transcribeConversationAudioBodyAudioBase64Max),
+  "mimeType": zod.enum(['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/wav', 'audio/x-wav']),
+  "fileName": zod.string().min(1).max(transcribeConversationAudioBodyFileNameMax),
+  "languagePair": zod.string(),
+  "durationMs": zod.number().min(1).max(transcribeConversationAudioBodyDurationMsMax)
+})
+
+
+
+
+export const TranscribeConversationAudioResponse = zod.object({
+  "transcript": zod.string().min(1),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "languagePair": zod.string(),
+  "providerLanguage": zod.string(),
+  "latencyMs": zod.number(),
+  "audioDurationMs": zod.number(),
+  "live": zod.boolean(),
+  "provenance": zod.string()
+})
+
+
+/**
  * @summary Run structured reasoning and deterministic safety checks
  */
 export const AnalyzeConversationParams = zod.object({
@@ -494,8 +533,23 @@ export const GetBenchmarkResponse = zod.object({
 /**
  * @summary Run available speech provider adapters on one scenario
  */
+export const runBenchmarkBodyAudioBase64Max = 11200000;
+
+export const runBenchmarkBodyFileNameMax = 120;
+
+export const runBenchmarkBodyDurationMsMax = 120000;
+
+export const runBenchmarkBodyReferenceTranscriptMax = 5000;
+
+
+
 export const RunBenchmarkBody = zod.object({
-  "benchmarkId": zod.string()
+  "benchmarkId": zod.string(),
+  "audioBase64": zod.string().min(1).max(runBenchmarkBodyAudioBase64Max).optional(),
+  "mimeType": zod.enum(['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/wav', 'audio/x-wav']).optional(),
+  "fileName": zod.string().min(1).max(runBenchmarkBodyFileNameMax).optional(),
+  "durationMs": zod.number().min(1).max(runBenchmarkBodyDurationMsMax).optional(),
+  "referenceTranscript": zod.string().min(1).max(runBenchmarkBodyReferenceTranscriptMax).optional()
 })
 
 export const RunBenchmarkResponse = zod.object({

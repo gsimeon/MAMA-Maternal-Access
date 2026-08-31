@@ -14,6 +14,12 @@ import {
   StructuredState,
   TranscriptMessage,
 } from "@workspace/api-zod";
+import {
+  decodeAudioBase64,
+  SpeechProviderError,
+  transcribeWithIntron,
+  type SpeechInput,
+} from "./providers/intron";
 
 type ConversationRecord = Conversation;
 
@@ -106,6 +112,10 @@ if (referrals.size === 0) {
 
 function getConversation(conversationId: string): ConversationRecord | undefined {
   return conversations.get(conversationId);
+}
+
+export function hasConversation(conversationId: string): boolean {
+  return conversations.has(conversationId);
 }
 
 function safetyFor(state: StructuredState): SafetyResult {
@@ -414,14 +424,86 @@ export function getBenchmark(benchmarkId: string): BenchmarkScenario | null {
   return benchmarkScenarios.find((scenario) => scenario.id === benchmarkId) ?? null;
 }
 
-export function runBenchmark(benchmarkId: string): BenchmarkRun | null {
+function normalizeWords(text: string): string[] {
+  return text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").split(/\s+/).filter(Boolean);
+}
+
+function wordErrorRate(reference: string, hypothesis: string): number {
+  const source = normalizeWords(reference);
+  const target = normalizeWords(hypothesis);
+  if (!source.length) return target.length ? 1 : 0;
+  const rows = Array.from({ length: source.length + 1 }, () => Array(target.length + 1).fill(0));
+  for (let i = 0; i <= source.length; i += 1) rows[i][0] = i;
+  for (let j = 0; j <= target.length; j += 1) rows[0][j] = j;
+  for (let i = 1; i <= source.length; i += 1) {
+    for (let j = 1; j <= target.length; j += 1) {
+      rows[i][j] = source[i - 1] === target[j - 1]
+        ? rows[i - 1][j - 1]
+        : Math.min(rows[i - 1][j - 1], rows[i - 1][j], rows[i][j - 1]) + 1;
+    }
+  }
+  return Math.min(1, rows[source.length][target.length] / source.length);
+}
+
+function criticalFactScore(facts: string[], transcript: string): number {
+  if (!facts.length) return 1;
+  const normalized = normalizeWords(transcript).join(" ");
+  return facts.filter((fact) => normalized.includes(normalizeWords(fact).join(" "))).length / facts.length;
+}
+
+type LiveBenchmarkInput = {
+  audioBase64?: string;
+  mimeType?: string;
+  fileName?: string;
+  durationMs?: number;
+  referenceTranscript?: string;
+};
+
+export async function runBenchmark(benchmarkId: string, input: LiveBenchmarkInput = {}): Promise<BenchmarkRun | null> {
   const scenario = getBenchmark(benchmarkId);
   if (!scenario) return null;
+  const hasLiveAudio = Boolean(input.audioBase64 || input.mimeType || input.fileName || input.durationMs || input.referenceTranscript);
+  if (hasLiveAudio) {
+    if (!input.audioBase64 || !input.mimeType || !input.fileName || !input.durationMs || !input.referenceTranscript) {
+      throw new SpeechProviderError("Audio, duration, file name, type, and locked reference transcript are all required for a live benchmark.", 400);
+    }
+    const speechInput: SpeechInput = {
+      bytes: decodeAudioBase64(input.audioBase64),
+      mimeType: input.mimeType,
+      fileName: input.fileName,
+      languagePair: scenario.languagePair,
+      durationMs: input.durationMs,
+    };
+    const live = await transcribeWithIntron(speechInput);
+    const extracted = extractState(live.transcript, baseState());
+    const expectedUrgent = scenario.expectedAction.toLowerCase().includes("urgent");
+    const actionCorrect = expectedUrgent ? extracted.riskLevel === "urgent" : extracted.riskLevel !== "urgent";
+    const factAccuracy = criticalFactScore(scenario.criticalFacts, live.transcript);
+    return {
+      benchmarkId,
+      results: [{
+        model: "SAHARA · LIVE",
+        transcript: live.transcript,
+        metrics: {
+          wer: wordErrorRate(input.referenceTranscript, live.transcript),
+          intentAccuracy: extracted.intent === scenario.intent ? 1 : 0,
+          criticalFactAccuracy: factAccuracy,
+          actionAccuracy: actionCorrect ? 1 : 0,
+          vasr: factAccuracy * (actionCorrect ? 1 : 0),
+          latencyMs: live.latencyMs,
+          executed: true,
+          availability: `${live.provenance} · ${live.providerLanguage}`,
+        },
+      }],
+      evaluatedAt: now(),
+      methodology: "Live Intron Sahara transcription measured against the user-locked reference transcript. WER is normalized word-level edit distance; critical facts and deterministic safety action are scored separately.",
+    };
+  }
   return {
     benchmarkId,
     results: scenario.results,
     evaluatedAt: now(),
-    methodology: "Demo mode replays stored, clearly labeled results. Live provider adapters are unavailable until their server-side credentials are configured.",
+    methodology: "Demo mode replays stored, clearly labeled results. Attach real audio and a locked reference transcript to execute a live Intron Sahara benchmark.",
   };
 }
 
