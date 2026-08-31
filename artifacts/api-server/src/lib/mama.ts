@@ -21,6 +21,21 @@ const conversations = new Map<string, ConversationRecord>();
 const referrals = new Map<string, Referral>();
 const escalations = new Map<string, Escalation>();
 
+export const INTRON_CODE_SWITCHED_LANGUAGES = [
+  "Nigerian Pidgin",
+  "Yoruba",
+  "Igbo",
+  "Hausa",
+  "Amharic",
+  "Swahili",
+  "Kinyarwanda",
+  "Luganda",
+  "Twi",
+  "Wolof",
+  "Zulu",
+  "Xhosa",
+] as const;
+
 const now = () => new Date().toISOString();
 const id = (prefix: string, count: number) => `${prefix}-${String(count).padStart(3, "0")}`;
 
@@ -365,6 +380,29 @@ const benchmarkScenarios: BenchmarkScenario[] = [
   },
 ];
 
+const pendingIntronScenarios: BenchmarkScenario[] = INTRON_CODE_SWITCHED_LANGUAGES
+  .filter((language) => language !== "Nigerian Pidgin" && language !== "Yoruba")
+  .map((language, index) => ({
+    id: `mama-intron-${String(index + 3).padStart(3, "0")}`,
+    label: `${language}-English code-switch test slot`,
+    languagePair: `English + ${language}`,
+    accentRegion: "Africa · Intron evaluation set",
+    speakerGender: "To be recorded",
+    speakerAgeGroup: "To be recorded",
+    domain: "Maternal safety intake",
+    deviceType: "To be recorded",
+    noiseCondition: "To be recorded",
+    referenceTranscript: `English code-switched ${language} maternal-health sample — add the locked Intron reference transcript before scoring.`,
+    intent: "maternal_health_concern",
+    criticalFacts: ["pregnancy", "symptom", "duration"],
+    expectedAction: "pending Intron evaluation",
+    audioAvailable: false,
+    dataLabel: "INTRON TEST SLOT · AUDIO PENDING",
+    results: [],
+  }));
+
+benchmarkScenarios.push(...pendingIntronScenarios);
+
 export function listBenchmarks(languagePair?: string, noiseCondition?: string, model?: string): BenchmarkScenario[] {
   return benchmarkScenarios.map((scenario) => ({
     ...scenario,
@@ -394,9 +432,10 @@ export function analytics(): AnalyticsSummary {
     referrals: referrals.size,
     humanEscalations: escalations.size + 3,
     languagePairs: [
-      { label: "English + Nigerian Pidgin", count: 8 },
-      { label: "English + Yoruba", count: 4 },
-      { label: "English + Igbo", count: 3 },
+      ...INTRON_CODE_SWITCHED_LANGUAGES.map((language, index) => ({
+        label: `English + ${language}`,
+        count: index < 2 ? (index === 0 ? 8 : 4) : 0,
+      })),
     ],
     codeSwitchedConversations: 14,
     averageLatencyMs: 940,
