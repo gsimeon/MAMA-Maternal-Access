@@ -307,10 +307,32 @@ test("shows recovery guidance when the mocked transcript message request fails",
 
   await page.route("**/api/conversations/conversation-live/message", async (route) => {
     messageRequests += 1;
+    if (messageRequests === 1) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Safety guidance is temporarily unavailable." }),
+      });
+      return;
+    }
     await route.fulfill({
-      status: 503,
       contentType: "application/json",
-      body: JSON.stringify({ error: "Safety guidance is temporarily unavailable." }),
+      body: JSON.stringify({
+        conversation: {
+          ...emptyConversation,
+          transcript: [{
+            id: "conversation-live-message-1",
+            speaker: "user",
+            text: redFlagTranscript,
+            createdAt: "2026-08-31T10:00:02.000Z",
+            source: "text",
+          }],
+        },
+        response: "Your message is ready for the next safety check.",
+        detectedLanguage: "English + Nigerian Pidgin",
+        nextQuestion: null,
+        safety: null,
+      }),
     });
   });
 
@@ -335,4 +357,21 @@ test("shows recovery guidance when the mocked transcript message request fails",
   await expect(page.getByTestId("button-request-human")).toBeVisible();
   expect(transcriptionRequests).toBe(1);
   expect(messageRequests).toBe(1);
+
+  await page.goto("/conversation");
+  await page.reload();
+
+  await expect(page.getByTestId("status-conversation-notice")).toContainText(
+    "MAMA could not deliver the safety guidance",
+  );
+  await expect(page.getByTestId("input-message")).toHaveValue(redFlagTranscript);
+  await expect(page.getByTestId("button-send-message")).toBeEnabled();
+  await expect(page.getByTestId("button-request-human")).toBeVisible();
+
+  await page.getByTestId("button-send-message").click();
+  await expect(page.getByTestId("message-transcript-conversation-live-message-1")).toContainText(
+    redFlagTranscript,
+  );
+  await expect(page.getByTestId("input-message")).toHaveValue("");
+  expect(messageRequests).toBe(2);
 });

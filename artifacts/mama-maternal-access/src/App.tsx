@@ -37,12 +37,33 @@ const cn = (...classes: Array<string | false | null | undefined>) => classes.fil
 const formatTime = (date?: string) => date ? new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'now';
 const riskLabel = (risk?: string | null) => risk === 'urgent' ? 'Urgent' : risk === 'needs_attention' ? 'Needs attention' : 'Routine';
 const RECORDER_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'] as const;
+const CONVERSATION_RECOVERY_STORAGE_KEY = 'mama-conversation-recovery';
+const VOICE_HANDOFF_RECOVERY_NOTICE = 'Your message was transcribed, but MAMA could not deliver the safety guidance. Review it below and send again, or choose “I want a human now.”';
+type ConversationRecovery = { conversationId: string; text: string; notice: string };
 const toBase64 = (blob: Blob) => new Promise<string>((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
   reader.onerror = () => reject(reader.error);
   reader.readAsDataURL(blob);
 });
+const readConversationRecovery = (conversationId: string | null): ConversationRecovery | null => {
+  if (!conversationId) return null;
+  try {
+    const stored = JSON.parse(localStorage.getItem(`${CONVERSATION_RECOVERY_STORAGE_KEY}:${conversationId}`) || 'null');
+    return stored?.conversationId === conversationId && typeof stored.text === 'string' && typeof stored.notice === 'string'
+      ? stored
+      : null;
+  } catch {
+    return null;
+  }
+};
+const saveConversationRecovery = (recovery: ConversationRecovery) => {
+  try { localStorage.setItem(`${CONVERSATION_RECOVERY_STORAGE_KEY}:${recovery.conversationId}`, JSON.stringify(recovery)); } catch { /* best effort only */ }
+};
+const clearConversationRecovery = (conversationId: string | null) => {
+  if (!conversationId) return;
+  try { localStorage.removeItem(`${CONVERSATION_RECOVERY_STORAGE_KEY}:${conversationId}`); } catch { /* best effort only */ }
+};
 const audioDuration = (blob: Blob) => new Promise<number>((resolve, reject) => {
   const audio = document.createElement('audio');
   const url = URL.createObjectURL(blob);
@@ -214,11 +235,14 @@ function ConversationPage() {
   const [, setLocation] = useLocation();
   const queryId = new URLSearchParams(window.location.search).get('id');
   const [conversation, setConversation] = useState<Conversation | null>(() => { try { return JSON.parse(localStorage.getItem('mama-conversation') || 'null'); } catch { return null; } });
-  const [text, setText] = useState('');
+  const conversationId = queryId || conversation?.id || null;
+  const [recovery] = useState(() => readConversationRecovery(conversationId));
+  const [text, setText] = useState(() => recovery?.text || '');
   const [listening, setListening] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [showConsent, setShowConsent] = useState(false);
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState(() => recovery?.notice || '');
+  const [hasRecovery, setHasRecovery] = useState(() => Boolean(recovery));
   const create = useCreateConversation();
   const addMessage = useAddConversationMessage();
   const analyze = useAnalyzeConversation();
@@ -239,7 +263,7 @@ function ConversationPage() {
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const recordingStartedRef = useRef(0);
-  const currentId = queryId || conversation?.id;
+  const currentId = conversationId;
   const messages = conversation?.transcript || [];
   const structure = conversation?.structuredState;
 
@@ -250,15 +274,21 @@ function ConversationPage() {
     if (!value.trim() || !currentId) return;
     setProcessing(true); setNotice('');
     addMessage.mutate({ conversationId: currentId, data: { text: value.trim(), source: source === 'voice' ? MessageInputSource.voice : MessageInputSource.text } }, {
-      onSuccess: (turn) => { saveConversation(turn.conversation); setText(''); setProcessing(false); setNotice(successNotice); },
+      onSuccess: (turn) => { clearConversationRecovery(currentId); setHasRecovery(false); saveConversation(turn.conversation); setText(''); setProcessing(false); setNotice(successNotice); },
       onError: () => {
         setProcessing(false);
         if (source === 'voice') {
           setText(value.trim());
-          setNotice('Your message was transcribed, but MAMA could not deliver the safety guidance. Review it below and send again, or choose “I want a human now.”');
+          setNotice(VOICE_HANDOFF_RECOVERY_NOTICE);
+          saveConversationRecovery({ conversationId: currentId, text: value.trim(), notice: VOICE_HANDOFF_RECOVERY_NOTICE });
+          setHasRecovery(true);
           return;
         }
-        setNotice('MAMA could not hear that. Your words are still safe here — try once more.');
+        const retryNotice = 'MAMA could not hear that. Your words are still safe here — try once more.';
+        setNotice(retryNotice);
+        if (hasRecovery) {
+          saveConversationRecovery({ conversationId: currentId, text: value.trim(), notice: retryNotice });
+        }
       },
     });
   };
@@ -359,7 +389,7 @@ function ConversationPage() {
             {processing && <div className="mx-auto flex max-w-2xl items-center gap-3 text-sm text-muted-foreground"><span className="flex gap-1"><i className="h-2 w-2 animate-bounce rounded-full bg-accent" /><i className="h-2 w-2 animate-bounce rounded-full bg-accent [animation-delay:100ms]" /><i className="h-2 w-2 animate-bounce rounded-full bg-accent [animation-delay:200ms]" /></span> MAMA is making sense of that…</div>}
             {notice && <div data-testid="status-conversation-notice" className="mx-auto flex max-w-2xl items-start gap-2 rounded-xl bg-accent/10 p-3 text-xs font-semibold text-foreground"><Info size={15} className="mt-0.5 shrink-0 text-accent" /> {notice}</div>}
           </div>
-          <div className="border-t border-border p-4 md:p-6"><div className="mx-auto flex max-w-2xl items-end gap-3"><div className="flex-1 rounded-2xl border border-input bg-background p-2 focus-within:border-primary"><textarea value={text} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(text); } }} data-testid="input-message" rows={2} placeholder="Type in your own words…" className="w-full resize-none bg-transparent px-2 py-1 text-sm outline-none placeholder:text-muted-foreground" /><div className="flex items-center justify-between px-1 pt-1"><span className="text-[10px] text-muted-foreground">Enter to send · Shift + Enter for a new line</span><button data-testid="button-send-message" onClick={() => send(text)} disabled={!text.trim() || processing} className="mama-focus rounded-lg bg-primary p-2 text-primary-foreground disabled:opacity-40"><Send size={16} /></button></div></div><VoiceButton listening={listening} processing={processing} onClick={toggleVoice} /></div><p className="mx-auto mt-3 max-w-2xl text-center text-[11px] text-muted-foreground">{listening ? 'Listening now. Tap the circle when you are done.' : 'Voice works best when you speak naturally, even when you mix languages.'}</p></div>
+          <div className="border-t border-border p-4 md:p-6"><div className="mx-auto flex max-w-2xl items-end gap-3"><div className="flex-1 rounded-2xl border border-input bg-background p-2 focus-within:border-primary"><textarea value={text} onChange={(event) => { const nextText = event.target.value; setText(nextText); if (hasRecovery && currentId) saveConversationRecovery({ conversationId: currentId, text: nextText, notice }); }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(text); } }} data-testid="input-message" rows={2} placeholder="Type in your own words…" className="w-full resize-none bg-transparent px-2 py-1 text-sm outline-none placeholder:text-muted-foreground" /><div className="flex items-center justify-between px-1 pt-1"><span className="text-[10px] text-muted-foreground">Enter to send · Shift + Enter for a new line</span><button data-testid="button-send-message" onClick={() => send(text)} disabled={!text.trim() || processing} className="mama-focus rounded-lg bg-primary p-2 text-primary-foreground disabled:opacity-40"><Send size={16} /></button></div></div><VoiceButton listening={listening} processing={processing} onClick={toggleVoice} /></div><p className="mx-auto mt-3 max-w-2xl text-center text-[11px] text-muted-foreground">{listening ? 'Listening now. Tap the circle when you are done.' : 'Voice works best when you speak naturally, even when you mix languages.'}</p></div>
         </section>
         <aside className="space-y-4">
           <section className="rounded-[24px] border border-border bg-card p-5"><div className="flex items-center justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">Step 02 / structure</p><h2 className="mt-1 font-[var(--app-font-serif)] text-xl font-extrabold tracking-[-.04em]">What MAMA heard</h2></div><BrainCircuit size={20} className="text-accent" /></div><div className="mt-5 space-y-3">{[['Intent', structure?.intent], ['Pregnancy', structure?.pregnancyStatus], ['Symptoms', structure?.symptoms?.join(', ')], ['Red flags', structure?.redFlags?.join(', ')], ['When', structure?.duration], ['Severity', structure?.severity]].map(([label, value]) => <div key={label} className="flex items-start justify-between gap-3 border-b border-border pb-3 last:border-0 last:pb-0"><span className="text-xs text-muted-foreground">{label}</span><span data-testid={`text-structure-${String(label).replaceAll(' ', '-').toLowerCase()}`} className="text-right text-xs font-bold">{value || <span className="font-normal text-muted-foreground">Waiting to hear</span>}</span></div>)}</div><Button variant="quiet" onClick={runAnalysis} disabled={analyze.isPending || !messages.length} className="mt-5 w-full" testId="button-analyze">{analyze.isPending ? <><RefreshCw size={16} className="animate-spin" /> Checking safely</> : <><ShieldCheck size={16} /> Run safety check</>}</Button></section>
