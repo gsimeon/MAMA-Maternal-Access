@@ -154,6 +154,7 @@ test("routes a mocked live red-flag transcript to urgent safety guidance", async
         audioDurationMs: 1_000,
         live: true,
         provenance: "LIVE INTRON SAHARA TRANSCRIPTION",
+        riskLevel: "urgent",
       }),
     });
   });
@@ -215,8 +216,30 @@ test("routes a mocked live red-flag transcript to urgent safety guidance", async
 test("shows recovery guidance when the mocked transcript message request fails", async ({ page }) => {
   let transcriptionRequests = 0;
   let messageRequests = 0;
+  const analyticsEvents: Array<{ name: string; data?: Record<string, string | number | boolean> }> = [];
+
+  await page.exposeFunction(
+    "captureAnalyticsEvent",
+    (name: string, data?: Record<string, string | number | boolean>) => {
+      analyticsEvents.push({ name, data });
+    },
+  );
 
   await page.addInitScript(() => {
+    Object.defineProperty(window, "umami", {
+      configurable: true,
+      value: {
+        track: (name: string, data?: Record<string, string | number | boolean>) => {
+          void (window as typeof window & {
+            captureAnalyticsEvent: (
+              eventName: string,
+              eventData?: Record<string, string | number | boolean>,
+            ) => Promise<void>;
+          }).captureAnalyticsEvent(name, data);
+        },
+      },
+    });
+
     class TestMediaRecorder {
       static isTypeSupported() {
         return true;
@@ -301,13 +324,14 @@ test("shows recovery guidance when the mocked transcript message request fails",
         audioDurationMs: 1_000,
         live: true,
         provenance: "LIVE INTRON SAHARA TRANSCRIPTION",
+        riskLevel: "urgent",
       }),
     });
   });
 
   await page.route("**/api/conversations/conversation-live/message", async (route) => {
     messageRequests += 1;
-    if (messageRequests === 1) {
+    if (messageRequests <= 2) {
       await route.fulfill({
         status: 503,
         contentType: "application/json",
@@ -357,12 +381,23 @@ test("shows recovery guidance when the mocked transcript message request fails",
   await expect(page.getByTestId("button-request-human")).toBeVisible();
   expect(transcriptionRequests).toBe(1);
   expect(messageRequests).toBe(1);
+  await expect.poll(() => analyticsEvents).toEqual([{
+    name: "urgent_handoff_failed",
+    data: { input_source: "voice", route: "/conversation" },
+  }]);
+
+  await page.getByTestId("button-send-message").click();
+  await expect(page.getByTestId("status-conversation-notice")).toContainText(
+    "Your words are still safe here",
+  );
+  expect(messageRequests).toBe(2);
+  expect(analyticsEvents).toHaveLength(1);
 
   await page.goto("/conversation");
   await page.reload();
 
   await expect(page.getByTestId("status-conversation-notice")).toContainText(
-    "MAMA could not deliver the safety guidance",
+    "Your words are still safe here",
   );
   await expect(page.getByTestId("input-message")).toHaveValue(redFlagTranscript);
   await expect(page.getByTestId("button-send-message")).toBeEnabled();
@@ -373,5 +408,17 @@ test("shows recovery guidance when the mocked transcript message request fails",
     redFlagTranscript,
   );
   await expect(page.getByTestId("input-message")).toHaveValue("");
-  expect(messageRequests).toBe(2);
+  expect(messageRequests).toBe(3);
+  await expect.poll(() => analyticsEvents).toEqual([
+    {
+      name: "urgent_handoff_failed",
+      data: { input_source: "voice", route: "/conversation" },
+    },
+    {
+      name: "urgent_handoff_recovered",
+      data: { recovery_action: "retry", route: "/conversation" },
+    },
+  ]);
+  expect(JSON.stringify(analyticsEvents)).not.toContain(redFlagTranscript);
+  expect(JSON.stringify(analyticsEvents)).not.toContain(emptyConversation.id);
 });

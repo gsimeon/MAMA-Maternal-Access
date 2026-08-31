@@ -168,7 +168,8 @@ export const TranscribeConversationAudioResponse = zod.object({
   "latencyMs": zod.number(),
   "audioDurationMs": zod.number(),
   "live": zod.boolean(),
-  "provenance": zod.string()
+  "provenance": zod.string(),
+  "riskLevel": zod.enum(['routine', 'needs_attention', 'urgent'])
 })
 
 

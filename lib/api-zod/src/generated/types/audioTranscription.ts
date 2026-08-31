@@ -5,6 +5,7 @@
  * MAMA maternal access, monitoring and action API
  * OpenAPI spec version: 0.1.0
  */
+import type { RiskLevel } from './riskLevel';
 
 export interface AudioTranscription {
   /** @minLength 1 */
@@ -17,4 +18,5 @@ export interface AudioTranscription {
   audioDurationMs: number;
   live: boolean;
   provenance: string;
+  riskLevel: RiskLevel;
 }

@@ -150,6 +150,7 @@ export interface AudioTranscription {
   audioDurationMs: number;
   live: boolean;
   provenance: string;
+  riskLevel: RiskLevel;
 }
 
 export type TranscriptMessageSpeaker = typeof TranscriptMessageSpeaker[keyof typeof TranscriptMessageSpeaker];

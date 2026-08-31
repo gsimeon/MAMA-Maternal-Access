@@ -118,6 +118,11 @@ export function hasConversation(conversationId: string): boolean {
   return conversations.has(conversationId);
 }
 
+export function classifyConversationMessage(conversationId: string, text: string): RiskLevel | null {
+  const conversation = getConversation(conversationId);
+  return conversation ? extractState(text, conversation.structuredState).riskLevel : null;
+}
+
 function safetyFor(state: StructuredState): SafetyResult {
   const urgentFlags = new Set(["Bleeding", "Dizziness", "Severe pain", "Difficulty breathing", "Loss of consciousness"]);
   const hasUrgent = state.redFlags.some((flag) => urgentFlags.has(flag));

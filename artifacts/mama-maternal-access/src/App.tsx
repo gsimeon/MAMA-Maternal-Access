@@ -24,6 +24,7 @@ import {
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { trackEvent } from '@/lib/analytics';
 import NotFound from '@/pages/not-found';
 
 const queryClient = new QueryClient();
@@ -39,7 +40,9 @@ const riskLabel = (risk?: string | null) => risk === 'urgent' ? 'Urgent' : risk 
 const RECORDER_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'] as const;
 const CONVERSATION_RECOVERY_STORAGE_KEY = 'mama-conversation-recovery';
 const VOICE_HANDOFF_RECOVERY_NOTICE = 'Your message was transcribed, but MAMA could not deliver the safety guidance. Review it below and send again, or choose “I want a human now.”';
-type ConversationRecovery = { conversationId: string; text: string; notice: string };
+const CONVERSATION_ANALYTICS_ROUTE = '/conversation';
+type RecoveryUrgency = 'urgent' | 'non_urgent' | 'unclassified';
+type ConversationRecovery = { conversationId: string; text: string; notice: string; urgency: RecoveryUrgency };
 const toBase64 = (blob: Blob) => new Promise<string>((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
@@ -51,7 +54,7 @@ const readConversationRecovery = (conversationId: string | null): ConversationRe
   try {
     const stored = JSON.parse(localStorage.getItem(`${CONVERSATION_RECOVERY_STORAGE_KEY}:${conversationId}`) || 'null');
     return stored?.conversationId === conversationId && typeof stored.text === 'string' && typeof stored.notice === 'string'
-      ? stored
+      ? { ...stored, urgency: stored.urgency === 'urgent' ? 'urgent' : stored.urgency === 'non_urgent' ? 'non_urgent' : 'unclassified' }
       : null;
   } catch {
     return null;
@@ -243,6 +246,7 @@ function ConversationPage() {
   const [showConsent, setShowConsent] = useState(false);
   const [notice, setNotice] = useState(() => recovery?.notice || '');
   const [hasRecovery, setHasRecovery] = useState(() => Boolean(recovery));
+  const [recoveryUrgency, setRecoveryUrgency] = useState<RecoveryUrgency>(() => recovery?.urgency || 'unclassified');
   const create = useCreateConversation();
   const addMessage = useAddConversationMessage();
   const analyze = useAnalyzeConversation();
@@ -270,24 +274,36 @@ function ConversationPage() {
   useEffect(() => { if (queryId && conversation?.id !== queryId) { const stored = localStorage.getItem('mama-conversation'); if (stored) setConversation(JSON.parse(stored)); } }, [queryId, conversation?.id]);
   const saveConversation = (next: Conversation) => { setConversation(next); localStorage.setItem('mama-conversation', JSON.stringify(next)); };
   const openConversation = () => create.mutate({ data: { demoMode: true, languagePair: 'English + Nigerian Pidgin' } }, { onSuccess: (next) => { saveConversation(next); setLocation(`/conversation?id=${next.id}`); } });
-  const send = (value: string, source: 'voice' | 'text' = 'text', successNotice = '') => {
+  const send = (value: string, source: 'voice' | 'text' = 'text', successNotice = '', classifiedUrgency?: RecoveryUrgency) => {
     if (!value.trim() || !currentId) return;
     setProcessing(true); setNotice('');
     addMessage.mutate({ conversationId: currentId, data: { text: value.trim(), source: source === 'voice' ? MessageInputSource.voice : MessageInputSource.text } }, {
-      onSuccess: (turn) => { clearConversationRecovery(currentId); setHasRecovery(false); saveConversation(turn.conversation); setText(''); setProcessing(false); setNotice(successNotice); },
+      onSuccess: (turn) => {
+        if (hasRecovery) {
+          if (recoveryUrgency === 'urgent') {
+            trackEvent('urgent_handoff_recovered', { recovery_action: 'retry', route: CONVERSATION_ANALYTICS_ROUTE });
+          }
+        }
+        clearConversationRecovery(currentId); setHasRecovery(false); saveConversation(turn.conversation); setText(''); setProcessing(false); setNotice(successNotice);
+      },
       onError: () => {
         setProcessing(false);
         if (source === 'voice') {
+          const urgency = classifiedUrgency || (structure?.riskLevel === 'urgent' ? 'urgent' : 'unclassified');
+          if (!hasRecovery && urgency === 'urgent') {
+            trackEvent('urgent_handoff_failed', { input_source: 'voice', route: CONVERSATION_ANALYTICS_ROUTE });
+          }
           setText(value.trim());
           setNotice(VOICE_HANDOFF_RECOVERY_NOTICE);
-          saveConversationRecovery({ conversationId: currentId, text: value.trim(), notice: VOICE_HANDOFF_RECOVERY_NOTICE });
+          saveConversationRecovery({ conversationId: currentId, text: value.trim(), notice: VOICE_HANDOFF_RECOVERY_NOTICE, urgency });
+          setRecoveryUrgency(urgency);
           setHasRecovery(true);
           return;
         }
         const retryNotice = 'MAMA could not hear that. Your words are still safe here — try once more.';
         setNotice(retryNotice);
         if (hasRecovery) {
-          saveConversationRecovery({ conversationId: currentId, text: value.trim(), notice: retryNotice });
+          saveConversationRecovery({ conversationId: currentId, text: value.trim(), notice: retryNotice, urgency: recoveryUrgency });
         }
       },
     });
@@ -348,7 +364,7 @@ function ConversationPage() {
               durationMs,
             },
           }, {
-            onSuccess: (result) => send(result.transcript, 'voice', `Live ${result.provider} ${result.model} transcript · ${result.latencyMs}ms`),
+            onSuccess: (result) => send(result.transcript, 'voice', `Live ${result.provider} ${result.model} transcript · ${result.latencyMs}ms`, result.riskLevel === 'urgent' ? 'urgent' : 'non_urgent'),
             onError: (error: any) => {
               setProcessing(false);
               const retryAfter = error?.response?.headers?.get?.('retry-after');
@@ -374,7 +390,28 @@ function ConversationPage() {
     }
   };
   const runAnalysis = () => { if (currentId) analyze.mutate({ conversationId: currentId }, { onSuccess: (result) => { saveConversation(result.conversation); setNotice('Safety check complete. Review the handoff below.'); } }); };
-  const requestHuman = () => { if (!currentId) return; action.mutate({ conversationId: currentId, data: { action: ActionInputAction.REQUEST_HUMAN, consent: null } }, { onSuccess: () => { escalate.mutate({ data: { conversationId: currentId, reason: 'Patient requested human support during intake.' } }, { onSuccess: (result) => setNotice(result.message || 'A human support request has been recorded.') }); }, onError: () => setNotice('Human support could not be reached right now. Please try again.') }); };
+  const requestHuman = () => {
+    if (!currentId) return;
+    const wasRecovery = hasRecovery;
+    action.mutate({ conversationId: currentId, data: { action: ActionInputAction.REQUEST_HUMAN, consent: null } }, {
+      onSuccess: () => {
+        escalate.mutate({ data: { conversationId: currentId, reason: 'Patient requested human support during intake.' } }, {
+          onSuccess: (result) => {
+            if (wasRecovery) {
+              if (recoveryUrgency === 'urgent') {
+                trackEvent('urgent_handoff_recovered', { recovery_action: 'human_support', route: CONVERSATION_ANALYTICS_ROUTE });
+              }
+              clearConversationRecovery(currentId);
+              setHasRecovery(false);
+            }
+            setNotice(result.message || 'A human support request has been recorded.');
+          },
+          onError: () => setNotice('Human support could not be reached right now. Please try again.'),
+        });
+      },
+      onError: () => setNotice('Human support could not be reached right now. Please try again.'),
+    });
+  };
   const prepareReferral = () => { if (!currentId) return; createReferral.mutate({ data: { conversationId: currentId, consent: true, status: ReferralStatus.new } }, { onSuccess: () => { setShowConsent(false); setNotice('Referral prepared for the care team.'); } }); };
   if (!conversation) return <div className="min-h-[100dvh] bg-background"><TopBar /><div className="mx-auto flex max-w-xl flex-col items-center px-5 py-24 text-center"><div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-primary/20 text-accent"><Mic size={28} /></div><h1 className="mt-7 font-[var(--app-font-serif)] text-4xl font-extrabold tracking-[-.06em]">A quiet place to start.</h1><p className="mt-4 text-sm leading-6 text-muted-foreground">Tell MAMA what is happening in your own words. You can speak or type, and you can stop at any time.</p><Button className="mt-8" onClick={openConversation} disabled={create.isPending} testId="button-open-conversation">{create.isPending ? 'Opening…' : <><Plus size={17} /> Begin intake</>}</Button></div></div>;
   return (
@@ -389,7 +426,7 @@ function ConversationPage() {
             {processing && <div className="mx-auto flex max-w-2xl items-center gap-3 text-sm text-muted-foreground"><span className="flex gap-1"><i className="h-2 w-2 animate-bounce rounded-full bg-accent" /><i className="h-2 w-2 animate-bounce rounded-full bg-accent [animation-delay:100ms]" /><i className="h-2 w-2 animate-bounce rounded-full bg-accent [animation-delay:200ms]" /></span> MAMA is making sense of that…</div>}
             {notice && <div data-testid="status-conversation-notice" className="mx-auto flex max-w-2xl items-start gap-2 rounded-xl bg-accent/10 p-3 text-xs font-semibold text-foreground"><Info size={15} className="mt-0.5 shrink-0 text-accent" /> {notice}</div>}
           </div>
-          <div className="border-t border-border p-4 md:p-6"><div className="mx-auto flex max-w-2xl items-end gap-3"><div className="flex-1 rounded-2xl border border-input bg-background p-2 focus-within:border-primary"><textarea value={text} onChange={(event) => { const nextText = event.target.value; setText(nextText); if (hasRecovery && currentId) saveConversationRecovery({ conversationId: currentId, text: nextText, notice }); }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(text); } }} data-testid="input-message" rows={2} placeholder="Type in your own words…" className="w-full resize-none bg-transparent px-2 py-1 text-sm outline-none placeholder:text-muted-foreground" /><div className="flex items-center justify-between px-1 pt-1"><span className="text-[10px] text-muted-foreground">Enter to send · Shift + Enter for a new line</span><button data-testid="button-send-message" onClick={() => send(text)} disabled={!text.trim() || processing} className="mama-focus rounded-lg bg-primary p-2 text-primary-foreground disabled:opacity-40"><Send size={16} /></button></div></div><VoiceButton listening={listening} processing={processing} onClick={toggleVoice} /></div><p className="mx-auto mt-3 max-w-2xl text-center text-[11px] text-muted-foreground">{listening ? 'Listening now. Tap the circle when you are done.' : 'Voice works best when you speak naturally, even when you mix languages.'}</p></div>
+           <div className="border-t border-border p-4 md:p-6"><div className="mx-auto flex max-w-2xl items-end gap-3"><div className="flex-1 rounded-2xl border border-input bg-background p-2 focus-within:border-primary"><textarea value={text} onChange={(event) => { const nextText = event.target.value; setText(nextText); if (hasRecovery && currentId) saveConversationRecovery({ conversationId: currentId, text: nextText, notice, urgency: recoveryUrgency }); }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(text); } }} data-testid="input-message" rows={2} placeholder="Type in your own words…" className="w-full resize-none bg-transparent px-2 py-1 text-sm outline-none placeholder:text-muted-foreground" /><div className="flex items-center justify-between px-1 pt-1"><span className="text-[10px] text-muted-foreground">Enter to send · Shift + Enter for a new line</span><button data-testid="button-send-message" onClick={() => send(text)} disabled={!text.trim() || processing} className="mama-focus rounded-lg bg-primary p-2 text-primary-foreground disabled:opacity-40"><Send size={16} /></button></div></div><VoiceButton listening={listening} processing={processing} onClick={toggleVoice} /></div><p className="mx-auto mt-3 max-w-2xl text-center text-[11px] text-muted-foreground">{listening ? 'Listening now. Tap the circle when you are done.' : 'Voice works best when you speak naturally, even when you mix languages.'}</p></div>
         </section>
         <aside className="space-y-4">
           <section className="rounded-[24px] border border-border bg-card p-5"><div className="flex items-center justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">Step 02 / structure</p><h2 className="mt-1 font-[var(--app-font-serif)] text-xl font-extrabold tracking-[-.04em]">What MAMA heard</h2></div><BrainCircuit size={20} className="text-accent" /></div><div className="mt-5 space-y-3">{[['Intent', structure?.intent], ['Pregnancy', structure?.pregnancyStatus], ['Symptoms', structure?.symptoms?.join(', ')], ['Red flags', structure?.redFlags?.join(', ')], ['When', structure?.duration], ['Severity', structure?.severity]].map(([label, value]) => <div key={label} className="flex items-start justify-between gap-3 border-b border-border pb-3 last:border-0 last:pb-0"><span className="text-xs text-muted-foreground">{label}</span><span data-testid={`text-structure-${String(label).replaceAll(' ', '-').toLowerCase()}`} className="text-right text-xs font-bold">{value || <span className="font-normal text-muted-foreground">Waiting to hear</span>}</span></div>)}</div><Button variant="quiet" onClick={runAnalysis} disabled={analyze.isPending || !messages.length} className="mt-5 w-full" testId="button-analyze">{analyze.isPending ? <><RefreshCw size={16} className="animate-spin" /> Checking safely</> : <><ShieldCheck size={16} /> Run safety check</>}</Button></section>

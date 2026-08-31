@@ -38,6 +38,7 @@ import {
   addMessage,
   analytics,
   analyzeConversation,
+  classifyConversationMessage,
   createConversation,
   createEscalation,
   getBenchmark,
@@ -126,7 +127,9 @@ router.post("/conversations/:conversationId/transcribe", async (req, res): Promi
       languagePair: body.data.languagePair,
       durationMs: body.data.durationMs,
     });
-    res.json(TranscribeConversationAudioResponse.parse(result));
+    const riskLevel = classifyConversationMessage(params.data.conversationId, result.transcript);
+    if (!riskLevel) { res.status(404).json({ error: "Conversation not found" }); return; }
+    res.json(TranscribeConversationAudioResponse.parse({ ...result, riskLevel }));
   } catch (error) {
     const providerError = error instanceof SpeechProviderError
       ? error

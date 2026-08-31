@@ -479,7 +479,9 @@ components:
           type: boolean
         provenance:
           type: string
-      required: [transcript, provider, model, languagePair, providerLanguage, latencyMs, audioDurationMs, live, provenance]
+        riskLevel:
+          $ref: "#/components/schemas/RiskLevel"
+      required: [transcript, provider, model, languagePair, providerLanguage, latencyMs, audioDurationMs, live, provenance, riskLevel]
     Conversation:
       type: object
       properties:
