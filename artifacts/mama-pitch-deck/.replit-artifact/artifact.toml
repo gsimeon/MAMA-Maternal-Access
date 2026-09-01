@@ -1,0 +1,28 @@
+kind = "slides"
+previewPath = "/mama-pitch-deck/"
+title = "MAMA — Maternal Access Pitch Deck"
+description = "A Healthcare Clarity pitch deck explaining MAMA's voice-first maternal access product, African-language support, safety routing, evaluation approach, and production safeguards."
+version = "1.0.0"
+id = "artifacts/mama-pitch-deck"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/mama-pitch-deck/" ]
+localPort = 25649
+
+[services.development]
+run = "pnpm --filter @workspace/mama-pitch-deck run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/mama-pitch-deck", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/mama-pitch-deck/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25649"
+BASE_PATH = "/mama-pitch-deck/"

@@ -1,0 +1,74 @@
+[
+  {
+    "id": "7db08a9e-33b7-4f30-bc7e-6b6a3c0d1a01",
+    "position": 1,
+    "filepath": "src/pages/slides/Slide1.tsx",
+    "title": "MAMA — Maternal Access",
+    "description": "A voice-first maternal access layer for safer next steps.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "7db08a9e-33b7-4f30-bc7e-6b6a3c0d1a02",
+    "position": 2,
+    "filepath": "src/pages/slides/Slide2.tsx",
+    "title": "Maternal care is often hard to reach in the moment",
+    "description": "The access gap MAMA is designed to address.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "7db08a9e-33b7-4f30-bc7e-6b6a3c0d1a03",
+    "position": 3,
+    "filepath": "src/pages/slides/Slide3.tsx",
+    "title": "A safer path from voice to action",
+    "description": "The MAMA product flow from voice input to support.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "7db08a9e-33b7-4f30-bc7e-6b6a3c0d1a04",
+    "position": 4,
+    "filepath": "src/pages/slides/Slide4.tsx",
+    "title": "Language access is part of the product",
+    "description": "Code-switched language support and visible evaluation boundaries.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "7db08a9e-33b7-4f30-bc7e-6b6a3c0d1a05",
+    "position": 5,
+    "filepath": "src/pages/slides/Slide5.tsx",
+    "title": "Safety routing, not just transcription",
+    "description": "Risk-aware routing and human-support recovery.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "7db08a9e-33b7-4f30-bc7e-6b6a3c0d1a06",
+    "position": 6,
+    "filepath": "src/pages/slides/Slide6.tsx",
+    "title": "How MAMA works",
+    "description": "Capture, understand, assess, and recover.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "7db08a9e-33b7-4f30-bc7e-6b6a3c0d1a07",
+    "position": 7,
+    "filepath": "src/pages/slides/Slide7.tsx",
+    "title": "Built for evidence, not demo theatre",
+    "description": "Inspectable scenarios and benchmark paths.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "7db08a9e-33b7-4f30-bc7e-6b6a3c0d1a08",
+    "position": 8,
+    "filepath": "src/pages/slides/Slide8.tsx",
+    "title": "Production-minded safeguards",
+    "description": "Authentication, origin controls, quotas, and visible recovery.",
+    "speakerNotes": ""
+  },
+  {
+    "id": "7db08a9e-33b7-4f30-bc7e-6b6a3c0d1a09",
+    "position": 9,
+    "filepath": "src/pages/slides/Slide9.tsx",
+    "title": "MAMA — Maternal Access",
+    "description": "Turn maternal voice into safer next steps.",
+    "speakerNotes": ""
+  }
+]
