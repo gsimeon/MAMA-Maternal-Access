@@ -8,3 +8,9 @@ type = "audio"
 title = "MAMA background music"
 description = "Generated music: Cinematic uplifting orchestral instrumental background music scoring a maternal healthcare technology explainer. Warm felt piano, gentle marimba, soft hand percussion, subtle strings…"
 logical_id = "8fb38335-e367-4b4d-b37b-618d830a2071"
+
+[[outputs]]
+id = "hk7KhwuitjNxpAJS7NfhJ"
+uri = "file://.local/outputs/MAMA---Maternal-Access-Pitch-Deck.pptx"
+type = "slides"
+title = "MAMA — Maternal Access Pitch Deck.pptx"
